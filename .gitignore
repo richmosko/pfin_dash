@@ -201,6 +201,11 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# VIM Editor Stuff
+*~
+*.swp
+*.swo
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
