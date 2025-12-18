@@ -1,35 +1,36 @@
--- Schema Definition?
+-- Schema Definition - MODIFIED FOR SUPABASE AUTH INTEGRATION
 
 
 -- =========================
 -- USERS AND ACCESS SECURITY
---   BEST PRACTICES SUMMARY
--- * Use VARCHAR(255) instead of CHAR(64) for password_hash
--- * Use bcrypt, argon2, or scrypt (NOT plain SHA-256)
--- * Never store passwords in plaintext
--- * Don't need separate salt column with modern algorithms
--- * Use at least 12 rounds for bcrypt (balance security/performance)
--- * Implement account lockout after failed login attempts
--- * TODO... Add email verification and 2FA for enhanced security
+--   SUPABASE AUTH HYBRID APPROACH
+-- * Supabase auth.users handles: authentication, password reset, social logins
+-- * owner table handles: business logic, app-specific data
+-- * Automatic sync via triggers
+-- 
+-- CHANGES FROM ORIGINAL:
+-- - Added supabase_user_id column (UUID foreign key to auth.users)
+-- - Removed password_hash, hash_algorithm (Supabase handles this)
+-- - Removed failed_login_attempts, locked_until (Supabase handles this)
+-- - Added triggers to auto-sync with auth.users
+-- - password_changed_at removed (Supabase tracks this)
 -- =========================
 
--- List of Owners (Users), with credentials for authentication
+-- List of Owners (Users), linked to Supabase auth
 CREATE TABLE owner (
     id SERIAL PRIMARY KEY,
+    supabase_user_id UUID UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     email VARCHAR(127) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    hash_algorithm VARCHAR(20) NOT NULL DEFAULT 'bcrypt',
+    -- Supabase auth.users handles all authentication
     token_version INTEGER NOT NULL DEFAULT 0,
     last_token_refresh TIMESTAMPTZ,
-    password_changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    failed_login_attempts INTEGER NOT NULL  NOT NULL DEFAULT 0 CHECK (failed_login_attempts >= 0),
-    locked_until TIMESTAMPTZ,  -- Account lockout after failed attempts
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_login TIMESTAMPTZ -- is this really needed?
+    last_login TIMESTAMPTZ
 );
 
 CREATE INDEX idx_owner_email ON owner(email);
+CREATE INDEX idx_owner_supabase_user_id ON owner(supabase_user_id);
 
 -- Function to allow trigger updates of 'updated_at' columns
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -46,6 +47,44 @@ CREATE TRIGGER update_owner_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+-- =========================
+-- SUPABASE AUTH INTEGRATION
+-- NEW TRIGGERS FOR AUTO-SYNC
+-- =========================
+
+-- Auto-create owner record when user signs up via Supabase
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.owner (supabase_user_id, email)
+    VALUES (NEW.id, NEW.email);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW
+    EXECUTE FUNCTION handle_new_user();
+
+-- Sync email changes from Supabase auth to owner table
+CREATE OR REPLACE FUNCTION sync_user_email()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE public.owner 
+    SET email = NEW.email,
+        updated_at = NOW()
+    WHERE supabase_user_id = NEW.id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER on_auth_user_email_updated
+    AFTER UPDATE OF email ON auth.users
+    FOR EACH ROW
+    WHEN (OLD.email IS DISTINCT FROM NEW.email)
+    EXECUTE FUNCTION sync_user_email();
+
 
 -- ==================================================
 -- DEFINED CATEGORIES / TYPES (INFREQUENTLY MODIFIED)
@@ -55,8 +94,8 @@ CREATE TRIGGER update_owner_updated_at
 CREATE TABLE account_type (
     id SERIAL PRIMARY KEY,
     name VARCHAR(127) UNIQUE NOT NULL,
-    is_taxable BOOLEAN NOT NULL, -- Will it every be taxed? If so, count unrealized gains
-    is_tax_deferred BOOLEAN NOT NULL, -- Do we count sales this year as realized gains?
+    is_taxable BOOLEAN NOT NULL, -- [richmosko]: Will it every be taxed? If so, count unrealized gains
+    is_tax_deferred BOOLEAN NOT NULL, -- [richmosko]: Do we count sales this year as realized gains?
     is_liability BOOLEAN NOT NULL
 );
 
@@ -69,7 +108,7 @@ CREATE TABLE asset_cat (
     UNIQUE(cat, sub_cat)
 );
 
--- Transaction Categories: Valid transactions types... FIXME: CONSTRAINTS TBD
+-- Transaction Categories: Valid transactions types
 CREATE TABLE trans_cat (
     id SERIAL PRIMARY KEY,
     cat VARCHAR(127) NOT NULL,
@@ -83,21 +122,21 @@ CREATE TABLE trans_cat (
 -- ACCOUNT AND TRANSACTION TRACKING
 -- ================================
 
--- List of Accounts: This is equivalent to a single google sheets file
+-- List of Accounts
 CREATE TABLE account (
     id SERIAL PRIMARY KEY,
     account_type_id INTEGER NOT NULL,
-    acct_name VARCHAR(127) NOT NULL, -- Canonical/system name (per-creator unique)
+    acct_name VARCHAR(127) NOT NULL, -- Account Name (per-creator unique)
     acct_number VARCHAR(127),
-    created_by INTEGER NOT NULL, -- Who created this account (for audit/history)
+    created_by INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-     FOREIGN KEY(created_by) REFERENCES owner(id) ON DELETE RESTRICT, -- Don't allow deleting creator
+    FOREIGN KEY(created_by) REFERENCES owner(id) ON DELETE RESTRICT,
     FOREIGN KEY(account_type_id) REFERENCES account_type(id) ON DELETE CASCADE,
     UNIQUE (acct_name, created_by)
 );
 
--- Add a trigger to update updated_at timestamp
+-- [richmosko]: a trigger to update the updated_at timestamp
 CREATE TRIGGER update_account_updated_at
     BEFORE UPDATE ON account
     FOR EACH ROW
@@ -105,12 +144,12 @@ CREATE TRIGGER update_account_updated_at
 
 CREATE INDEX idx_account_created_by ON account(created_by);
 
--- Accounts Access: The specification for who can access what
+-- Accounts Access: Who can access what
 CREATE TABLE account_access (
     account_id INTEGER NOT NULL,
     owner_id INTEGER NOT NULL,
     access_level VARCHAR(20) NOT NULL CHECK (access_level IN ('owner', 'editor', 'viewer')),
-    nickname VARCHAR(127) NOT NULL, -- Personal display name for this account (defaults to acct.acct_name)
+    nickname VARCHAR(127) NOT NULL,
     granted_by INTEGER,
     granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     notes TEXT,
@@ -118,27 +157,28 @@ CREATE TABLE account_access (
     FOREIGN KEY(owner_id) REFERENCES owner(id) ON DELETE CASCADE,
     FOREIGN KEY(granted_by) REFERENCES owner(id) ON DELETE SET NULL,
     CONSTRAINT account_access_pk PRIMARY KEY (account_id, owner_id),
-    CONSTRAINT unique_nickname_per_owner UNIQUE (owner_id, nickname) -- Each owner has unique nicknames
+    CONSTRAINT unique_nickname_per_owner UNIQUE (owner_id, nickname)
 );
 
 CREATE INDEX idx_account_access_owner_id ON account_access(owner_id);
 
--- List of Assets: If "Equity" type, Company Information via the "stock-list" query
+-- List of Assets
+--     [richmosko]: If "Equity" type, Company Information via the "stock-list" query
 CREATE TABLE asset (
     id SERIAL PRIMARY KEY,
     symbol VARCHAR(15) UNIQUE NOT NULL,
     asset_cat_id INTEGER NOT NULL,
     description TEXT,
-    exp_date DATE, -- If NULL, then no expiration date
+    exp_date DATE, -- [richmosko]: If NULL, then no expiration date
     FOREIGN KEY(asset_cat_id) REFERENCES asset_cat(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_asset_cat_id ON asset(asset_cat_id);
 
--- Account Transactions: Self explanatory...
---   Note: Reconciled holdings live here as well. they will show up as 'reconcile' trans_cat_id
+-- Account Transactions
+--     [richmosko]: Reconciled holdings live here as well. they will show up as 'reconcile' trans_cat_id
 CREATE TABLE account_trans (
-    id SERIAL PRIMARY KEY, -- This is also used for Lot grouping and sorting
+    id SERIAL PRIMARY KEY,
     account_id INTEGER NOT NULL,
     asset_id INTEGER NOT NULL,
     trans_cat_id INTEGER NOT NULL,
@@ -147,10 +187,10 @@ CREATE TABLE account_trans (
     qty NUMERIC(14, 4),
     amount NUMERIC(14, 2),
     cost NUMERIC(14, 2),
-    balance NUMERIC(14, 2), -- imported running CASH balance to use for reconcilliation
+    balance NUMERIC(14, 2), -- [richmosko]: imported running CASH balance to use for reconcilliation
     description TEXT,
     import_text TEXT,
-    import_hash VARCHAR(32) NOT NULL, -- MD5 checksum of imported CSV... this is for deduplication
+    import_hash VARCHAR(32) NOT NULL, -- [richmosko]: MD5 checksum of orig CSV columns... for transaction matching
     FOREIGN KEY(account_id) REFERENCES account(id) ON DELETE CASCADE,
     FOREIGN KEY(asset_id) REFERENCES asset(id) ON DELETE CASCADE,
     FOREIGN KEY(trans_cat_id) REFERENCES trans_cat(id) ON DELETE CASCADE,
@@ -163,7 +203,6 @@ CREATE INDEX idx_account_trans_date ON account_trans(trans_date);
 CREATE INDEX idx_account_trans_import_hash ON account_trans(import_hash);
 CREATE INDEX idx_account_trans_account_date ON account_trans(account_id, trans_date DESC);
 CREATE INDEX idx_account_trans_date_account ON account_trans(trans_date DESC, account_id);
-
 
 -- Owner Watchlists
 CREATE TABLE owner_watchlist (
@@ -178,7 +217,8 @@ CREATE TABLE owner_watchlist (
 -- ASSET TRACKING FOR ACCOUNTS AND STOCK SCREENING
 -- ===============================================
 
--- List of Company Names: Extended Company Information via the "profile" query
+-- List of Company Names: Extended Company Information
+--     [richmosko]:  from FMP "profile" JSON query
 CREATE TABLE stock_profile (
     asset_id INTEGER PRIMARY KEY,
     price NUMERIC(14, 2),
@@ -219,7 +259,8 @@ CREATE TABLE stock_profile (
     FOREIGN KEY (asset_id) REFERENCES asset(id) ON DELETE CASCADE
 );
 
--- Company Historical Price Data via the "historical-price-eod/full" query
+-- Company Historical Price Data
+--     [richmosko]:  from FMP "historical-price-eod/full" JSON query
 CREATE TABLE eod_price (
     id SERIAL PRIMARY KEY,
     asset_id INTEGER NOT NULL,
@@ -239,22 +280,23 @@ CREATE TABLE eod_price (
 CREATE INDEX idx_eod_price_asset_date ON eod_price(asset_id, date DESC);
 CREATE INDEX idx_eod_price_date ON eod_price(date DESC);
 
--- Company Reporting Periods (Intermediate table to sync
--- earnings and balance sheets)
+-- Company Reporting Periods
+--     [richmosko]: Intermediate table to sync earnings, cash flows, and balance sheets
 CREATE TABLE reporting_period (
     id SERIAL PRIMARY KEY,
     asset_id INTEGER NOT NULL,
-    period_end_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    filing_date DATE NOT NULL,
     fiscal_year INTEGER NOT NULL,
     period VARCHAR(2) NOT NULL CHECK (period IN ('FY', 'Q1', 'Q2', 'Q3', 'Q4')),
     CONSTRAINT fk_stock_period FOREIGN KEY (asset_id) REFERENCES asset(id) ON DELETE CASCADE,
-    CONSTRAINT unique_stock_period UNIQUE (asset_id, period_end_date)
+    CONSTRAINT unique_stock_period UNIQUE (asset_id, filing_date)
 );
 
 CREATE INDEX idx_reporting_period_asset_id ON reporting_period(asset_id, fiscal_year DESC, period);
 CREATE INDEX idx_reporting_period_fiscal_year ON reporting_period(fiscal_year DESC, period);
 
--- Company Income Statements (references reporting_periods)
+-- Company Income Statements
 CREATE TABLE income_statement (
     id SERIAL PRIMARY KEY,
     reporting_period_id INTEGER NOT NULL,
@@ -297,7 +339,7 @@ CREATE TABLE income_statement (
     UNIQUE (reporting_period_id)
 );
 
--- Company Balance Sheets (references reporting_periods)
+-- Company Balance Sheets
 CREATE TABLE balance_sheet (
     id SERIAL PRIMARY KEY,
     reporting_period_id INTEGER NOT NULL,
@@ -362,7 +404,7 @@ CREATE TABLE balance_sheet (
     UNIQUE (reporting_period_id)
 );
 
--- Company Cash Flows (references reporting_periods)
+-- Company Cash Flows
 CREATE TABLE cash_flow (
     id SERIAL PRIMARY KEY,
     reporting_period_id INTEGER NOT NULL,
@@ -414,9 +456,9 @@ CREATE TABLE cash_flow (
 );
 
 -- Company Estimates (EPS / Rev)
---   Note: the "stable/earnings" query has EPS and revenue estimates for future reports
---         as well as historical reports... but doesn't have that for the normal income
---         statements.
+--     [richmosko]: the FMP "stable/earnings" query has EPS and revenue estimates for future
+--     reports as well as historical reports... but doesn't have that for the normal
+--     income statements.
 CREATE TABLE estimate (
     id SERIAL PRIMARY KEY,
     reporting_period_id INTEGER NOT NULL,
@@ -428,8 +470,6 @@ CREATE TABLE estimate (
     FOREIGN KEY (reporting_period_id) REFERENCES reporting_period(id) ON DELETE CASCADE,
     UNIQUE (reporting_period_id)
 );
-
--- Technical Indicators and Current Price?
 
 
 -- FUNCTIONS / TRIGGERS
@@ -445,8 +485,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- [richmosko]: nickname column defaults to account.acct_name
 CREATE TRIGGER account_creator_access
 AFTER INSERT ON account
 FOR EACH ROW
 EXECUTE FUNCTION grant_creator_access();
-
