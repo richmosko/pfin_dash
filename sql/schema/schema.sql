@@ -1,6 +1,3 @@
--- Schema Definition - MODIFIED FOR SUPABASE AUTH INTEGRATION
-
-
 -- =========================
 -- USERS AND ACCESS SECURITY
 --   SUPABASE AUTH HYBRID APPROACH
@@ -46,11 +43,6 @@ CREATE TRIGGER update_owner_updated_at
     BEFORE UPDATE ON owner
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
-
--- =========================
--- SUPABASE AUTH INTEGRATION
--- NEW TRIGGERS FOR AUTO-SYNC
--- =========================
 
 -- Auto-create owner record when user signs up via Supabase
 CREATE OR REPLACE FUNCTION handle_new_user()
@@ -162,6 +154,22 @@ CREATE TABLE account_access (
 
 CREATE INDEX idx_account_access_owner_id ON account_access(owner_id);
 
+-- Trigger to automatically grant owner access when account is created
+CREATE OR REPLACE FUNCTION grant_creator_access()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO account_access (account_id, owner_id, access_level, granted_by, nickname)
+    VALUES (NEW.id, NEW.created_by, 'owner', NEW.created_by, NEW.acct_name);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- [richmosko]: nickname column defaults to account.acct_name
+CREATE TRIGGER account_creator_access
+AFTER INSERT ON account
+FOR EACH ROW
+EXECUTE FUNCTION grant_creator_access();
+
 -- List of Assets
 --     [richmosko]: If "Equity" type, Company Information via the "stock-list" query
 CREATE TABLE asset (
@@ -212,6 +220,7 @@ CREATE TABLE owner_watchlist (
     FOREIGN KEY(asset_id) REFERENCES asset(id) ON DELETE CASCADE,
     CONSTRAINT owner_watchlist_pk PRIMARY KEY (owner_id, asset_id)
 );
+
 
 -- ===============================================
 -- ASSET TRACKING FOR ACCOUNTS AND STOCK SCREENING
@@ -470,23 +479,3 @@ CREATE TABLE estimate (
     FOREIGN KEY (reporting_period_id) REFERENCES reporting_period(id) ON DELETE CASCADE,
     UNIQUE (reporting_period_id)
 );
-
-
--- FUNCTIONS / TRIGGERS
--- --------------------
-
--- Trigger to automatically grant owner access when account is created
-CREATE OR REPLACE FUNCTION grant_creator_access()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO account_access (account_id, owner_id, access_level, granted_by, nickname)
-    VALUES (NEW.id, NEW.created_by, 'owner', NEW.created_by, NEW.acct_name);
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- [richmosko]: nickname column defaults to account.acct_name
-CREATE TRIGGER account_creator_access
-AFTER INSERT ON account
-FOR EACH ROW
-EXECUTE FUNCTION grant_creator_access();
