@@ -10,6 +10,7 @@
 -- ============================
 CREATE SCHEMA pfin;
 
+
 -- =========================
 -- USERS AND ACCESS SECURITY
 --   SUPABASE AUTH HYBRID APPROACH
@@ -540,4 +541,36 @@ CREATE TABLE pfin.estimate (
         REFERENCES pfin.reporting_period(id) ON DELETE CASCADE,
     CONSTRAINT uq_estimate_reporting_period
         UNIQUE (reporting_period_id)
+);
+
+
+-- ==========================================================
+-- Simple Tracking of Database Versions and Migration Scripts
+--
+--     An INSERT INTO statement should be the last command
+--     on every *.sql migration script used.
+--
+-- ==========================================================
+CREATE TABLE pfin.schema_version (
+    id SERIAL PRIMARY KEY,
+    major_release VARCHAR (2) NOT NULL,
+    minor_release VARCHAR (2) NOT NULL,
+    point_release VARCHAR (4) NOT NULL,
+    script_name VARCHAR (50) NOT NULL,
+    released_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_pfin_schema_version
+        UNIQUE (major_release, minor_release, point_release)
+);
+
+INSERT INTO pfin.schema_version (
+    id,
+    major_release,
+    minor_release,
+    point_release,
+    script_name
+) VALUES (
+    '01',
+    '00',
+    '0000',
+    'sql/schema/schema.sql'
 );
