@@ -35,8 +35,8 @@ CREATE TABLE pfin.member (
         REFERENCES auth.users(id) ON DELETE CASCADE
 );
 
-CREATE INDEX pfin.idx_member_email ON pfin.member(email);
-CREATE INDEX pfin.idx_member_supabase_user_id ON pfin.member(supabase_user_id);
+CREATE INDEX idx_member_email ON pfin.member(email);
+CREATE INDEX idx_member_supabase_user_id ON pfin.member(supabase_user_id);
 
 -- Function to allow trigger updates of 'updated_at' columns
 CREATE OR REPLACE FUNCTION pfin.fn_update_updated_at_column()
@@ -150,7 +150,7 @@ CREATE TRIGGER trg_update_pfinaccount_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION pfin.fn_update_updated_at_column();
 
-CREATE INDEX pfin.idx_account_created_by ON pfin.account(created_by);
+CREATE INDEX idx_account_created_by ON pfin.account(created_by);
 
 -- Accounts Access: Who can access what
 CREATE TABLE pfin.account_access (
@@ -178,7 +178,7 @@ CREATE TABLE pfin.account_access (
         UNIQUE (member_id, nickname)
 );
 
-CREATE INDEX pfin.idx_account_access_member_id ON pfin.account_access(member_id);
+CREATE INDEX idx_account_access_member_id ON pfin.account_access(member_id);
 
 -- Trigger to automatically grant member access when account is created
 CREATE OR REPLACE FUNCTION pfin.fn_grant_creator_access()
@@ -209,7 +209,7 @@ CREATE TABLE pfin.asset (
         REFERENCES pfin.asset_cat(id) ON DELETE RESTRICT
 );
 
-CREATE INDEX pfin.idx_asset_cat_id ON pfin.asset(asset_cat_id);
+CREATE INDEX idx_asset_cat_id ON pfin.asset(asset_cat_id);
 
 -- Account Transactions
 --     [richmosko]: Reconciled holdings live here as well. they will show up as 'reconcile' trans_cat_id
@@ -240,12 +240,12 @@ CREATE TABLE pfin.account_trans (
         UNIQUE(account_id, import_hash)
 );
 
-CREATE INDEX pfin.idx_account_trans_account_id ON pfin.account_trans(account_id);
-CREATE INDEX pfin.idx_account_trans_asset_id ON pfin.account_trans(asset_id);
-CREATE INDEX pfin.idx_account_trans_date ON pfin.account_trans(trans_date);
-CREATE INDEX pfin.idx_account_trans_import_hash ON pfin.account_trans(import_hash);
-CREATE INDEX pfin.idx_account_trans_account_date ON pfin.account_trans(account_id, trans_date DESC);
-CREATE INDEX pfin.idx_account_trans_date_account ON pfin.account_trans(trans_date DESC, account_id);
+CREATE INDEX idx_account_trans_account_id ON pfin.account_trans(account_id);
+CREATE INDEX idx_account_trans_asset_id ON pfin.account_trans(asset_id);
+CREATE INDEX idx_account_trans_date ON pfin.account_trans(trans_date);
+CREATE INDEX idx_account_trans_import_hash ON pfin.account_trans(import_hash);
+CREATE INDEX idx_account_trans_account_date ON pfin.account_trans(account_id, trans_date DESC);
+CREATE INDEX idx_account_trans_date_account ON pfin.account_trans(trans_date DESC, account_id);
 
 -- Member Watchlists
 CREATE TABLE pfin.watchlist (
@@ -331,8 +331,8 @@ CREATE TABLE pfin.eod_price (
         UNIQUE (asset_id, end_date)
 );
 
-CREATE INDEX pfin.idx_eod_price_asset_date ON pfin.eod_price(asset_id, end_date DESC);
-CREATE INDEX pfin.idx_eod_price_date ON pfin.eod_price(end_date DESC);
+CREATE INDEX idx_eod_price_asset_date ON pfin.eod_price(asset_id, end_date DESC);
+CREATE INDEX idx_eod_price_date ON pfin.eod_price(end_date DESC);
 
 -- Company Reporting Periods
 --     [richmosko]: Intermediate table to sync earnings, cash flows, and balance sheets
@@ -353,8 +353,8 @@ CREATE TABLE pfin.reporting_period (
         UNIQUE (asset_id, filing_date)
 );
 
-CREATE INDEX pfin.idx_reporting_period_asset_id ON pfin.reporting_period(asset_id, fiscal_year DESC, period);
-CREATE INDEX pfin.idx_reporting_period_fiscal_year ON pfin.reporting_period(fiscal_year DESC, period);
+CREATE INDEX idx_reporting_period_asset_id ON pfin.reporting_period(asset_id, fiscal_year DESC, period);
+CREATE INDEX idx_reporting_period_fiscal_year ON pfin.reporting_period(fiscal_year DESC, period);
 
 -- Company Income Statements
 CREATE TABLE pfin.income_statement (
