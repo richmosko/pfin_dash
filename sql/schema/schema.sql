@@ -48,7 +48,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Add a trigger to update updated_at timestamp
-CREATE TRIGGER pfin.trg_update_member_updated_at
+CREATE TRIGGER trg_update_pfinmember_updated_at
     BEFORE UPDATE ON pfin.member
     FOR EACH ROW
     EXECUTE FUNCTION pfin.fn_update_updated_at_column();
@@ -63,7 +63,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER pfin.trg_on_auth_user_created
+CREATE TRIGGER trg_on_pfinauth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW
     EXECUTE FUNCTION pfin.fn_handle_new_user();
@@ -80,7 +80,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER pfin.trg_on_auth_user_email_updated
+CREATE TRIGGER trg_on_pfinauth_user_email_updated
     AFTER UPDATE OF email ON auth.users
     FOR EACH ROW
     WHEN (OLD.email IS DISTINCT FROM NEW.email)
@@ -145,7 +145,7 @@ CREATE TABLE pfin.account (
 );
 
 -- [richmosko]: a trigger to update the updated_at timestamp
-CREATE TRIGGER pfin.trg_update_account_updated_at
+CREATE TRIGGER trg_update_pfinaccount_updated_at
     BEFORE UPDATE ON pfin.account
     FOR EACH ROW
     EXECUTE FUNCTION pfin.fn_update_updated_at_column();
@@ -162,7 +162,7 @@ CREATE TABLE pfin.account_access (
     granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     notes TEXT,
     CONSTRAINT ck_access_level
-        CHECK(access_level IN ('owner', 'editor', 'viewer'),
+        CHECK(access_level IN ('owner', 'editor', 'viewer')),
     CONSTRAINT fk_account_access_account_id
         FOREIGN KEY(account_id)
         REFERENCES pfin.account(id) ON DELETE CASCADE,
@@ -191,7 +191,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- [richmosko]: nickname column defaults to account.acct_name
-CREATE TRIGGER pfin.trg_account_creator_access
+CREATE TRIGGER trg_pfinaccount_creator_access
 AFTER INSERT ON pfin.account
 FOR EACH ROW
 EXECUTE FUNCTION pfin.fn_grant_creator_access();
