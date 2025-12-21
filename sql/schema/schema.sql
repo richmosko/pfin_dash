@@ -1,20 +1,26 @@
+-- ============================
+-- Personal Finance - Dashboard
+--
+-- This project tracks user watchlists and accounts / transactions.
+-- To be used to reconcile and summarize positions and Net Asset Values.
+-- Also used to screen stocks for buy / sell opportunities.
+-- More metrics TBD... but source data is from Financial Modeling Prep.
+--
+--   Schema namespace to reference pfin_dash project
+-- ============================
+CREATE SCHEMA pfin;
+
 -- =========================
 -- USERS AND ACCESS SECURITY
 --   SUPABASE AUTH HYBRID APPROACH
--- * Supabase auth.users handles: authentication, password reset, social logins
--- * member table handles: business logic, app-specific data
--- * Automatic sync via triggers
+--   * Supabase auth.users handles: authentication, password reset, social logins
+--   * member table handles: business logic, app-specific data
+--   * Automatic sync via triggers
 -- 
--- CHANGES FROM ORIGINAL:
--- - Added supabase_user_id column (UUID foreign key to auth.users)
--- - Removed password_hash, hash_algorithm (Supabase handles this)
--- - Removed failed_login_attempts, locked_until (Supabase handles this)
--- - Added triggers to auto-sync with auth.users
--- - password_changed_at removed (Supabase tracks this)
 -- =========================
 
 -- List of Members (Users), linked to Supabase auth
-CREATE TABLE member (
+CREATE TABLE pfin.member (
     id SERIAL PRIMARY KEY,
     supabase_user_id UUID UNIQUE NOT NULL,
     email VARCHAR(128) UNIQUE NOT NULL,
@@ -29,11 +35,11 @@ CREATE TABLE member (
         REFERENCES auth.users(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_member_email ON member(email);
-CREATE INDEX idx_member_supabase_user_id ON member(supabase_user_id);
+CREATE INDEX pfin.idx_member_email ON pfin.member(email);
+CREATE INDEX pfin.idx_member_supabase_user_id ON pfin.member(supabase_user_id);
 
 -- Function to allow trigger updates of 'updated_at' columns
-CREATE OR REPLACE FUNCTION fn_update_updated_at_column()
+CREATE OR REPLACE FUNCTION pfin.fn_update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
@@ -42,31 +48,31 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Add a trigger to update updated_at timestamp
-CREATE TRIGGER trg_update_member_updated_at
-    BEFORE UPDATE ON member
+CREATE TRIGGER pfin.trg_update_member_updated_at
+    BEFORE UPDATE ON pfin.member
     FOR EACH ROW
-    EXECUTE FUNCTION fn_update_updated_at_column();
+    EXECUTE FUNCTION pfin.fn_update_updated_at_column();
 
 -- Auto-create member record when user signs up via Supabase
-CREATE OR REPLACE FUNCTION fn_handle_new_user()
+CREATE OR REPLACE FUNCTION pfin.fn_handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-    INSERT INTO public.member (supabase_user_id, email)
+    INSERT INTO pfin.member (supabase_user_id, email)
     VALUES (NEW.id, NEW.email);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER trg_on_auth_user_created
+CREATE TRIGGER pfin.trg_on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW
-    EXECUTE FUNCTION fn_handle_new_user();
+    EXECUTE FUNCTION pfin.fn_handle_new_user();
 
 -- Sync email changes from Supabase auth to member table
-CREATE OR REPLACE FUNCTION fn_sync_user_email()
+CREATE OR REPLACE FUNCTION pfin.fn_sync_user_email()
 RETURNS TRIGGER AS $$
 BEGIN
-    UPDATE public.member 
+    UPDATE pfin.member 
     SET email = NEW.email,
         updated_at = NOW()
     WHERE supabase_user_id = NEW.id;
@@ -74,11 +80,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER trg_on_auth_user_email_updated
+CREATE TRIGGER pfin.trg_on_auth_user_email_updated
     AFTER UPDATE OF email ON auth.users
     FOR EACH ROW
     WHEN (OLD.email IS DISTINCT FROM NEW.email)
-    EXECUTE FUNCTION fn_sync_user_email();
+    EXECUTE FUNCTION pfin.fn_sync_user_email();
 
 
 -- ==================================================
@@ -86,7 +92,7 @@ CREATE TRIGGER trg_on_auth_user_email_updated
 -- ==================================================
 
 -- Account Types: Valid account types and associated tax and liability handling
-CREATE TABLE account_type (
+CREATE TABLE pfin.account_type (
     id SERIAL PRIMARY KEY,
     name VARCHAR(128) UNIQUE NOT NULL,
     is_taxable BOOLEAN NOT NULL, -- [richmosko]: Will it ever be taxed? If so, track unrealized gains
@@ -97,7 +103,7 @@ CREATE TABLE account_type (
 
 -- Asset Categories: Valid assets to track. ie: cash, bonds, equity, alt, etc.
 -- and associated sub-categories
-CREATE TABLE asset_cat (
+CREATE TABLE pfin.asset_cat (
     id SERIAL PRIMARY KEY,
     cat VARCHAR(128) NOT NULL,
     sub_cat VARCHAR(128) NOT NULL,
@@ -106,7 +112,7 @@ CREATE TABLE asset_cat (
 );
 
 -- Transaction Categories: Valid transactions types
-CREATE TABLE trans_cat (
+CREATE TABLE pfin.trans_cat (
     id SERIAL PRIMARY KEY,
     cat VARCHAR(128) NOT NULL,
     sub_cat VARCHAR(128) NOT NULL,
@@ -120,7 +126,7 @@ CREATE TABLE trans_cat (
 -- ================================
 
 -- List of Accounts
-CREATE TABLE account (
+CREATE TABLE pfin.account (
     id SERIAL PRIMARY KEY,
     account_type_id INTEGER NOT NULL,
     acct_name VARCHAR(128) NOT NULL, -- Account Name (per-creator unique)
@@ -130,24 +136,24 @@ CREATE TABLE account (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_account_created_by
         FOREIGN KEY(created_by)
-        REFERENCES member(id) ON DELETE CASCADE,
+        REFERENCES pfin.member(id) ON DELETE CASCADE,
     CONSTRAINT fk_account_account_type_id
         FOREIGN KEY(account_type_id)
-        REFERENCES account_type(id) ON DELETE RESTRICT,
+        REFERENCES pfin.account_type(id) ON DELETE RESTRICT,
     CONSTRAINT uq_account_namecreated
         UNIQUE (acct_name, created_by)
 );
 
 -- [richmosko]: a trigger to update the updated_at timestamp
-CREATE TRIGGER trg_update_account_updated_at
-    BEFORE UPDATE ON account
+CREATE TRIGGER pfin.trg_update_account_updated_at
+    BEFORE UPDATE ON pfin.account
     FOR EACH ROW
-    EXECUTE FUNCTION fn_update_updated_at_column();
+    EXECUTE FUNCTION pfin.fn_update_updated_at_column();
 
-CREATE INDEX idx_account_created_by ON account(created_by);
+CREATE INDEX pfin.idx_account_created_by ON pfin.account(created_by);
 
 -- Accounts Access: Who can access what
-CREATE TABLE account_access (
+CREATE TABLE pfin.account_access (
     account_id INTEGER NOT NULL,
     member_id INTEGER NOT NULL,
     access_level VARCHAR(20) NOT NULL,
@@ -159,40 +165,40 @@ CREATE TABLE account_access (
         CHECK(access_level IN ('owner', 'editor', 'viewer'),
     CONSTRAINT fk_account_access_account_id
         FOREIGN KEY(account_id)
-        REFERENCES account(id) ON DELETE CASCADE,
+        REFERENCES pfin.account(id) ON DELETE CASCADE,
     CONSTRAINT fk_account_access_member_id
         FOREIGN KEY(member_id)
-        REFERENCES member(id) ON DELETE CASCADE,
+        REFERENCES pfin.member(id) ON DELETE CASCADE,
     CONSTRAINT fk_accout_access_granted_by
         FOREIGN KEY(granted_by)
-        REFERENCES member(id) ON DELETE SET NULL,
+        REFERENCES pfin.member(id) ON DELETE SET NULL,
     CONSTRAINT pk_account_access
         PRIMARY KEY (account_id, member_id),
     CONSTRAINT uq_account_access_membernickname
         UNIQUE (member_id, nickname)
 );
 
-CREATE INDEX idx_account_access_member_id ON account_access(member_id);
+CREATE INDEX pfin.idx_account_access_member_id ON pfin.account_access(member_id);
 
 -- Trigger to automatically grant member access when account is created
-CREATE OR REPLACE FUNCTION fn_grant_creator_access()
+CREATE OR REPLACE FUNCTION pfin.fn_grant_creator_access()
 RETURNS TRIGGER AS $$
 BEGIN
-    INSERT INTO account_access (account_id, member_id, access_level, granted_by, nickname)
+    INSERT INTO pfin.account_access (account_id, member_id, access_level, granted_by, nickname)
     VALUES (NEW.id, NEW.created_by, 'owner', NEW.created_by, NEW.acct_name);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 -- [richmosko]: nickname column defaults to account.acct_name
-CREATE TRIGGER trg_account_creator_access
-AFTER INSERT ON account
+CREATE TRIGGER pfin.trg_account_creator_access
+AFTER INSERT ON pfin.account
 FOR EACH ROW
-EXECUTE FUNCTION fn_grant_creator_access();
+EXECUTE FUNCTION pfin.fn_grant_creator_access();
 
 -- List of Assets
 --     [richmosko]: If "Equity" type, Company Information via the "stock-list" query
-CREATE TABLE asset (
+CREATE TABLE pfin.asset (
     id SERIAL PRIMARY KEY,
     symbol VARCHAR(16) UNIQUE NOT NULL,
     asset_cat_id INTEGER NOT NULL,
@@ -200,14 +206,14 @@ CREATE TABLE asset (
     exp_date DATE, -- [richmosko]: If NULL, then no expiration date
     CONSTRAINT fk_asset_asset_cat_id
         FOREIGN KEY(asset_cat_id)
-        REFERENCES asset_cat(id) ON DELETE RESTRICT
+        REFERENCES pfin.asset_cat(id) ON DELETE RESTRICT
 );
 
-CREATE INDEX idx_asset_cat_id ON asset(asset_cat_id);
+CREATE INDEX pfin.idx_asset_cat_id ON pfin.asset(asset_cat_id);
 
 -- Account Transactions
 --     [richmosko]: Reconciled holdings live here as well. they will show up as 'reconcile' trans_cat_id
-CREATE TABLE account_trans (
+CREATE TABLE pfin.account_trans (
     id SERIAL PRIMARY KEY,
     account_id INTEGER NOT NULL,
     asset_id INTEGER NOT NULL,
@@ -223,34 +229,34 @@ CREATE TABLE account_trans (
     import_hash VARCHAR(32) NOT NULL, -- [richmosko]: MD5 checksum of orig CSV columns... for transaction matching
     CONSTRAINT fk_account_trans_account_id
         FOREIGN KEY(account_id)
-        REFERENCES account(id) ON DELETE CASCADE,
+        REFERENCES pfin.account(id) ON DELETE CASCADE,
     CONSTRAINT fk_account_trans_asset_id
         FOREIGN KEY(asset_id)
-        REFERENCES asset(id) ON DELETE RESTRICT,
+        REFERENCES pfin.asset(id) ON DELETE RESTRICT,
     CONSTRAINT fk_account_trans_trans_cat_id
         FOREIGN KEY(trans_cat_id)
-        REFERENCES trans_cat(id) ON DELETE RESTRICT,
+        REFERENCES pfin.trans_cat(id) ON DELETE RESTRICT,
     CONSTRAINT uq_account_trans_accounthash
         UNIQUE(account_id, import_hash)
 );
 
-CREATE INDEX idx_account_trans_account_id ON account_trans(account_id);
-CREATE INDEX idx_account_trans_asset_id ON account_trans(asset_id);
-CREATE INDEX idx_account_trans_date ON account_trans(trans_date);
-CREATE INDEX idx_account_trans_import_hash ON account_trans(import_hash);
-CREATE INDEX idx_account_trans_account_date ON account_trans(account_id, trans_date DESC);
-CREATE INDEX idx_account_trans_date_account ON account_trans(trans_date DESC, account_id);
+CREATE INDEX pfin.idx_account_trans_account_id ON pfin.account_trans(account_id);
+CREATE INDEX pfin.idx_account_trans_asset_id ON pfin.account_trans(asset_id);
+CREATE INDEX pfin.idx_account_trans_date ON pfin.account_trans(trans_date);
+CREATE INDEX pfin.idx_account_trans_import_hash ON pfin.account_trans(import_hash);
+CREATE INDEX pfin.idx_account_trans_account_date ON pfin.account_trans(account_id, trans_date DESC);
+CREATE INDEX pfin.idx_account_trans_date_account ON pfin.account_trans(trans_date DESC, account_id);
 
 -- Member Watchlists
-CREATE TABLE member_watchlist (
+CREATE TABLE pfin.watchlist (
     member_id INTEGER NOT NULL,
     asset_id INTEGER NOT NULL,
     CONSTRAINT fk_member_watchlist_member_id
-        FOREIGN KEY(member_id)
-        REFERENCES member(id) ON DELETE CASCADE,
+        FOREIGN KEY (member_id)
+        REFERENCES pfin.member(id) ON DELETE CASCADE,
     CONSTRAINT fk_member_watchlist_asset_id
-        FOREIGN KEY(asset_id)
-        REFERENCES asset(id) ON DELETE RESTRICT,
+        FOREIGN KEY (asset_id)
+        REFERENCES pfin.asset(id) ON DELETE RESTRICT,
     CONSTRAINT pk_member_watchlist
         PRIMARY KEY (member_id, asset_id)
 );
@@ -262,7 +268,7 @@ CREATE TABLE member_watchlist (
 
 -- List of Company Names: Extended Company Information
 --     [richmosko]:  from FMP "profile" JSON query
-CREATE TABLE stock_profile (
+CREATE TABLE pfin.stock_profile (
     asset_id INTEGER PRIMARY KEY,
     price NUMERIC(14, 2),
     market_cap BIGINT,
@@ -301,12 +307,12 @@ CREATE TABLE stock_profile (
     is_fund BOOLEAN,
     CONSTRAINT fk_stock_profile_asset_id
         FOREIGN KEY (asset_id)
-        REFERENCES asset(id) ON DELETE CASCADE
+        REFERENCES pfin.asset(id) ON DELETE CASCADE
 );
 
 -- Company Historical Price Data
 --     [richmosko]:  from FMP "historical-price-eod/full" JSON query
-CREATE TABLE eod_price (
+CREATE TABLE pfin.eod_price (
     id SERIAL PRIMARY KEY,
     asset_id INTEGER NOT NULL,
     end_date DATE NOT NULL,
@@ -320,17 +326,17 @@ CREATE TABLE eod_price (
     vwap NUMERIC(14, 4),
     CONSTRAINT fk_eod_price_asset_id
         FOREIGN KEY (asset_id)
-        REFERENCES asset(id) ON DELETE CASCADE,
+        REFERENCES pfin.asset(id) ON DELETE CASCADE,
     CONSTRAINT uq_eod_price_assetdate
         UNIQUE (asset_id, end_date)
 );
 
-CREATE INDEX idx_eod_price_asset_date ON eod_price(asset_id, end_date DESC);
-CREATE INDEX idx_eod_price_date ON eod_price(end_date DESC);
+CREATE INDEX pfin.idx_eod_price_asset_date ON pfin.eod_price(asset_id, end_date DESC);
+CREATE INDEX pfin.idx_eod_price_date ON pfin.eod_price(end_date DESC);
 
 -- Company Reporting Periods
 --     [richmosko]: Intermediate table to sync earnings, cash flows, and balance sheets
-CREATE TABLE reporting_period (
+CREATE TABLE pfin.reporting_period (
     id SERIAL PRIMARY KEY,
     asset_id INTEGER NOT NULL,
     end_date DATE NOT NULL,
@@ -342,16 +348,16 @@ CREATE TABLE reporting_period (
         CHECK (period IN ('FY', 'Q1', 'Q2', 'Q3', 'Q4')),
     CONSTRAINT fk_reporting_period_asset_id
         FOREIGN KEY (asset_id)
-        REFERENCES asset(id) ON DELETE CASCADE,
+        REFERENCES pfin.asset(id) ON DELETE CASCADE,
     CONSTRAINT uq_reporting_period_assetdate
         UNIQUE (asset_id, filing_date)
 );
 
-CREATE INDEX idx_reporting_period_asset_id ON reporting_period(asset_id, fiscal_year DESC, period);
-CREATE INDEX idx_reporting_period_fiscal_year ON reporting_period(fiscal_year DESC, period);
+CREATE INDEX pfin.idx_reporting_period_asset_id ON pfin.reporting_period(asset_id, fiscal_year DESC, period);
+CREATE INDEX pfin.idx_reporting_period_fiscal_year ON pfin.reporting_period(fiscal_year DESC, period);
 
 -- Company Income Statements
-CREATE TABLE income_statement (
+CREATE TABLE pfin.income_statement (
     id SERIAL PRIMARY KEY,
     reporting_period_id INTEGER NOT NULL,
     reported_currency VARCHAR(3),
@@ -389,13 +395,13 @@ CREATE TABLE income_statement (
     weighted_average_shs_out_dil BIGINT,
     CONSTRAINT fk_income_statement_reporting_period
         FOREIGN KEY (reporting_period_id)
-        REFERENCES reporting_period(id) ON DELETE CASCADE,
+        REFERENCES pfin.reporting_period(id) ON DELETE CASCADE,
     CONSTRAINT uq_income_statement_reporting_period
         UNIQUE (reporting_period_id)
 );
 
 -- Company Balance Sheets
-CREATE TABLE balance_sheet (
+CREATE TABLE pfin.balance_sheet (
     id SERIAL PRIMARY KEY,
     reporting_period_id INTEGER NOT NULL,
     reported_currency VARCHAR(3),
@@ -455,13 +461,13 @@ CREATE TABLE balance_sheet (
     net_debt NUMERIC(18, 2),
     CONSTRAINT fk_balance_statement_reporting_period
         FOREIGN KEY (reporting_period_id)
-        REFERENCES reporting_period(id) ON DELETE CASCADE,
+        REFERENCES pfin.reporting_period(id) ON DELETE CASCADE,
     CONSTRAINT uq_balance_statement_reporting_period
         UNIQUE (reporting_period_id)
 );
 
 -- Company Cash Flows
-CREATE TABLE cash_flow (
+CREATE TABLE pfin.cash_flow (
     id SERIAL PRIMARY KEY,
     reporting_period_id INTEGER NOT NULL,
     reported_currency VARCHAR(3),
@@ -507,7 +513,7 @@ CREATE TABLE cash_flow (
     interest_paid NUMERIC(18, 2),
     CONSTRAINT fk_cash_flow_reporting_period
         FOREIGN KEY (reporting_period_id)
-        REFERENCES reporting_period(id) ON DELETE CASCADE,
+        REFERENCES pfin.reporting_period(id) ON DELETE CASCADE,
     CONSTRAINT uq_cash_flow_reporting_period
         UNIQUE (reporting_period_id)
 );
@@ -516,7 +522,7 @@ CREATE TABLE cash_flow (
 --     [richmosko]: the FMP "stable/earnings" query has EPS and revenue estimates for future
 --     reports as well as historical reports... but doesn't have that for the normal
 --     income statements.
-CREATE TABLE estimate (
+CREATE TABLE pfin.estimate (
     id SERIAL PRIMARY KEY,
     reporting_period_id INTEGER NOT NULL,
     eps_actual NUMERIC(14, 4),
@@ -526,7 +532,7 @@ CREATE TABLE estimate (
     last_updated DATE,
     CONSTRAINT fk_estimate_reporting_period
         FOREIGN KEY (reporting_period_id)
-        REFERENCES reporting_period(id) ON DELETE CASCADE,
+        REFERENCES pfin.reporting_period(id) ON DELETE CASCADE,
     CONSTRAINT uq_estimate_reporting_period
         UNIQUE (reporting_period_id)
 );
