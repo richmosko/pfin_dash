@@ -169,7 +169,7 @@ CREATE TABLE pfin.account_access (
     CONSTRAINT fk_account_access_member_id
         FOREIGN KEY(member_id)
         REFERENCES pfin.member(id) ON DELETE CASCADE,
-    CONSTRAINT fk_accout_access_granted_by
+    CONSTRAINT fk_account_access_granted_by
         FOREIGN KEY(granted_by)
         REFERENCES pfin.member(id) ON DELETE SET NULL,
     CONSTRAINT pk_account_access
