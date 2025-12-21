@@ -29,7 +29,7 @@ CREATE TABLE pfin.member (
     last_token_refresh TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_login TIMESTAMPTZ
+    last_login TIMESTAMPTZ,
     CONSTRAINT fk_member_supabase_user_id
         FOREIGN KEY (supabase_user_id)
         REFERENCES auth.users(id) ON DELETE CASCADE
