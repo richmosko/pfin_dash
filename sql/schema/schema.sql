@@ -2,7 +2,7 @@
 -- USERS AND ACCESS SECURITY
 --   SUPABASE AUTH HYBRID APPROACH
 -- * Supabase auth.users handles: authentication, password reset, social logins
--- * owner table handles: business logic, app-specific data
+-- * member table handles: business logic, app-specific data
 -- * Automatic sync via triggers
 -- 
 -- CHANGES FROM ORIGINAL:
@@ -13,24 +13,27 @@
 -- - password_changed_at removed (Supabase tracks this)
 -- =========================
 
--- List of Owners (Users), linked to Supabase auth
-CREATE TABLE owner (
+-- List of Members (Users), linked to Supabase auth
+CREATE TABLE member (
     id SERIAL PRIMARY KEY,
-    supabase_user_id UUID UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    email VARCHAR(127) UNIQUE NOT NULL,
+    supabase_user_id UUID UNIQUE NOT NULL,
+    email VARCHAR(128) UNIQUE NOT NULL,
     -- Supabase auth.users handles all authentication
     token_version INTEGER NOT NULL DEFAULT 0,
     last_token_refresh TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_login TIMESTAMPTZ
+    CONSTRAINT fk_member_supabase_user_id
+        FOREIGN KEY (supabase_user_id)
+        REFERENCES auth.users(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_owner_email ON owner(email);
-CREATE INDEX idx_owner_supabase_user_id ON owner(supabase_user_id);
+CREATE INDEX idx_member_email ON member(email);
+CREATE INDEX idx_member_supabase_user_id ON member(supabase_user_id);
 
 -- Function to allow trigger updates of 'updated_at' columns
-CREATE OR REPLACE FUNCTION update_updated_at_column()
+CREATE OR REPLACE FUNCTION fn_update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
@@ -39,31 +42,31 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Add a trigger to update updated_at timestamp
-CREATE TRIGGER update_owner_updated_at
-    BEFORE UPDATE ON owner
+CREATE TRIGGER trg_update_member_updated_at
+    BEFORE UPDATE ON member
     FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+    EXECUTE FUNCTION fn_update_updated_at_column();
 
--- Auto-create owner record when user signs up via Supabase
-CREATE OR REPLACE FUNCTION handle_new_user()
+-- Auto-create member record when user signs up via Supabase
+CREATE OR REPLACE FUNCTION fn_handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-    INSERT INTO public.owner (supabase_user_id, email)
+    INSERT INTO public.member (supabase_user_id, email)
     VALUES (NEW.id, NEW.email);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER on_auth_user_created
+CREATE TRIGGER trg_on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW
-    EXECUTE FUNCTION handle_new_user();
+    EXECUTE FUNCTION fn_handle_new_user();
 
--- Sync email changes from Supabase auth to owner table
-CREATE OR REPLACE FUNCTION sync_user_email()
+-- Sync email changes from Supabase auth to member table
+CREATE OR REPLACE FUNCTION fn_sync_user_email()
 RETURNS TRIGGER AS $$
 BEGIN
-    UPDATE public.owner 
+    UPDATE public.member 
     SET email = NEW.email,
         updated_at = NOW()
     WHERE supabase_user_id = NEW.id;
@@ -71,11 +74,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER on_auth_user_email_updated
+CREATE TRIGGER trg_on_auth_user_email_updated
     AFTER UPDATE OF email ON auth.users
     FOR EACH ROW
     WHEN (OLD.email IS DISTINCT FROM NEW.email)
-    EXECUTE FUNCTION sync_user_email();
+    EXECUTE FUNCTION fn_sync_user_email();
 
 
 -- ==================================================
@@ -85,28 +88,30 @@ CREATE TRIGGER on_auth_user_email_updated
 -- Account Types: Valid account types and associated tax and liability handling
 CREATE TABLE account_type (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(127) UNIQUE NOT NULL,
-    is_taxable BOOLEAN NOT NULL, -- [richmosko]: Will it every be taxed? If so, count unrealized gains
-    is_tax_deferred BOOLEAN NOT NULL, -- [richmosko]: Do we count sales this year as realized gains?
-    is_liability BOOLEAN NOT NULL
+    name VARCHAR(128) UNIQUE NOT NULL,
+    is_taxable BOOLEAN NOT NULL, -- [richmosko]: Will it ever be taxed? If so, track unrealized gains
+    is_tax_deferred BOOLEAN NOT NULL, -- [richmosko]: Do sales count as realized gains?
+    is_liability BOOLEAN NOT NULL,
+    notes TEXT
 );
 
 -- Asset Categories: Valid assets to track. ie: cash, bonds, equity, alt, etc.
 -- and associated sub-categories
 CREATE TABLE asset_cat (
     id SERIAL PRIMARY KEY,
-    cat VARCHAR(127) NOT NULL,
-    sub_cat VARCHAR(127) NOT NULL,
-    UNIQUE(cat, sub_cat)
+    cat VARCHAR(128) NOT NULL,
+    sub_cat VARCHAR(128) NOT NULL,
+    notes TEXT,
+    CONSTRAINT uq_asset_cat UNIQUE(cat, sub_cat)
 );
 
 -- Transaction Categories: Valid transactions types
 CREATE TABLE trans_cat (
     id SERIAL PRIMARY KEY,
-    cat VARCHAR(127) NOT NULL,
-    sub_cat VARCHAR(127) NOT NULL,
-    is_debit BOOLEAN NOT NULL DEFAULT FALSE,
-    UNIQUE(cat, sub_cat)
+    cat VARCHAR(128) NOT NULL,
+    sub_cat VARCHAR(128) NOT NULL,
+    notes TEXT,
+    CONSTRAINT uq_trans_cat UNIQUE(cat, sub_cat)
 );
 
 
@@ -118,67 +123,84 @@ CREATE TABLE trans_cat (
 CREATE TABLE account (
     id SERIAL PRIMARY KEY,
     account_type_id INTEGER NOT NULL,
-    acct_name VARCHAR(127) NOT NULL, -- Account Name (per-creator unique)
-    acct_number VARCHAR(127),
+    acct_name VARCHAR(128) NOT NULL, -- Account Name (per-creator unique)
+    acct_number VARCHAR(128),
     created_by INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    FOREIGN KEY(created_by) REFERENCES owner(id) ON DELETE RESTRICT,
-    FOREIGN KEY(account_type_id) REFERENCES account_type(id) ON DELETE CASCADE,
-    UNIQUE (acct_name, created_by)
+    CONSTRAINT fk_account_created_by
+        FOREIGN KEY(created_by)
+        REFERENCES member(id) ON DELETE CASCADE,
+    CONSTRAINT fk_account_account_type_id
+        FOREIGN KEY(account_type_id)
+        REFERENCES account_type(id) ON DELETE RESTRICT,
+    CONSTRAINT uq_account_namecreated
+        UNIQUE (acct_name, created_by)
 );
 
 -- [richmosko]: a trigger to update the updated_at timestamp
-CREATE TRIGGER update_account_updated_at
+CREATE TRIGGER trg_update_account_updated_at
     BEFORE UPDATE ON account
     FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+    EXECUTE FUNCTION fn_update_updated_at_column();
 
 CREATE INDEX idx_account_created_by ON account(created_by);
 
 -- Accounts Access: Who can access what
 CREATE TABLE account_access (
     account_id INTEGER NOT NULL,
-    owner_id INTEGER NOT NULL,
-    access_level VARCHAR(20) NOT NULL CHECK (access_level IN ('owner', 'editor', 'viewer')),
-    nickname VARCHAR(127) NOT NULL,
+    member_id INTEGER NOT NULL,
+    access_level VARCHAR(20) NOT NULL,
+    nickname VARCHAR(128) NOT NULL,
     granted_by INTEGER,
     granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     notes TEXT,
-    FOREIGN KEY(account_id) REFERENCES account(id) ON DELETE CASCADE,
-    FOREIGN KEY(owner_id) REFERENCES owner(id) ON DELETE CASCADE,
-    FOREIGN KEY(granted_by) REFERENCES owner(id) ON DELETE SET NULL,
-    CONSTRAINT account_access_pk PRIMARY KEY (account_id, owner_id),
-    CONSTRAINT unique_nickname_per_owner UNIQUE (owner_id, nickname)
+    CONSTRAINT ck_access_level
+        CHECK(access_level IN ('owner', 'editor', 'viewer'),
+    CONSTRAINT fk_account_access_account_id
+        FOREIGN KEY(account_id)
+        REFERENCES account(id) ON DELETE CASCADE,
+    CONSTRAINT fk_account_access_member_id
+        FOREIGN KEY(member_id)
+        REFERENCES member(id) ON DELETE CASCADE,
+    CONSTRAINT fk_accout_access_granted_by
+        FOREIGN KEY(granted_by)
+        REFERENCES member(id) ON DELETE SET NULL,
+    CONSTRAINT pk_account_access
+        PRIMARY KEY (account_id, member_id),
+    CONSTRAINT uq_account_access_membernickname
+        UNIQUE (member_id, nickname)
 );
 
-CREATE INDEX idx_account_access_owner_id ON account_access(owner_id);
+CREATE INDEX idx_account_access_member_id ON account_access(member_id);
 
--- Trigger to automatically grant owner access when account is created
-CREATE OR REPLACE FUNCTION grant_creator_access()
+-- Trigger to automatically grant member access when account is created
+CREATE OR REPLACE FUNCTION fn_grant_creator_access()
 RETURNS TRIGGER AS $$
 BEGIN
-    INSERT INTO account_access (account_id, owner_id, access_level, granted_by, nickname)
+    INSERT INTO account_access (account_id, member_id, access_level, granted_by, nickname)
     VALUES (NEW.id, NEW.created_by, 'owner', NEW.created_by, NEW.acct_name);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 -- [richmosko]: nickname column defaults to account.acct_name
-CREATE TRIGGER account_creator_access
+CREATE TRIGGER trg_account_creator_access
 AFTER INSERT ON account
 FOR EACH ROW
-EXECUTE FUNCTION grant_creator_access();
+EXECUTE FUNCTION fn_grant_creator_access();
 
 -- List of Assets
 --     [richmosko]: If "Equity" type, Company Information via the "stock-list" query
 CREATE TABLE asset (
     id SERIAL PRIMARY KEY,
-    symbol VARCHAR(15) UNIQUE NOT NULL,
+    symbol VARCHAR(16) UNIQUE NOT NULL,
     asset_cat_id INTEGER NOT NULL,
     description TEXT,
     exp_date DATE, -- [richmosko]: If NULL, then no expiration date
-    FOREIGN KEY(asset_cat_id) REFERENCES asset_cat(id) ON DELETE CASCADE
+    CONSTRAINT fk_asset_asset_cat_id
+        FOREIGN KEY(asset_cat_id)
+        REFERENCES asset_cat(id) ON DELETE RESTRICT
 );
 
 CREATE INDEX idx_asset_cat_id ON asset(asset_cat_id);
@@ -199,10 +221,17 @@ CREATE TABLE account_trans (
     description TEXT,
     import_text TEXT,
     import_hash VARCHAR(32) NOT NULL, -- [richmosko]: MD5 checksum of orig CSV columns... for transaction matching
-    FOREIGN KEY(account_id) REFERENCES account(id) ON DELETE CASCADE,
-    FOREIGN KEY(asset_id) REFERENCES asset(id) ON DELETE CASCADE,
-    FOREIGN KEY(trans_cat_id) REFERENCES trans_cat(id) ON DELETE CASCADE,
-    UNIQUE(account_id, import_hash)
+    CONSTRAINT fk_account_trans_account_id
+        FOREIGN KEY(account_id)
+        REFERENCES account(id) ON DELETE CASCADE,
+    CONSTRAINT fk_account_trans_asset_id
+        FOREIGN KEY(asset_id)
+        REFERENCES asset(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_account_trans_trans_cat_id
+        FOREIGN KEY(trans_cat_id)
+        REFERENCES trans_cat(id) ON DELETE RESTRICT,
+    CONSTRAINT uq_account_trans_accounthash
+        UNIQUE(account_id, import_hash)
 );
 
 CREATE INDEX idx_account_trans_account_id ON account_trans(account_id);
@@ -212,13 +241,18 @@ CREATE INDEX idx_account_trans_import_hash ON account_trans(import_hash);
 CREATE INDEX idx_account_trans_account_date ON account_trans(account_id, trans_date DESC);
 CREATE INDEX idx_account_trans_date_account ON account_trans(trans_date DESC, account_id);
 
--- Owner Watchlists
-CREATE TABLE owner_watchlist (
-    owner_id INTEGER NOT NULL,
+-- Member Watchlists
+CREATE TABLE member_watchlist (
+    member_id INTEGER NOT NULL,
     asset_id INTEGER NOT NULL,
-    FOREIGN KEY(owner_id) REFERENCES owner(id) ON DELETE CASCADE,
-    FOREIGN KEY(asset_id) REFERENCES asset(id) ON DELETE CASCADE,
-    CONSTRAINT owner_watchlist_pk PRIMARY KEY (owner_id, asset_id)
+    CONSTRAINT fk_member_watchlist_member_id
+        FOREIGN KEY(member_id)
+        REFERENCES member(id) ON DELETE CASCADE,
+    CONSTRAINT fk_member_watchlist_asset_id
+        FOREIGN KEY(asset_id)
+        REFERENCES asset(id) ON DELETE RESTRICT,
+    CONSTRAINT pk_member_watchlist
+        PRIMARY KEY (member_id, asset_id)
 );
 
 
@@ -265,7 +299,9 @@ CREATE TABLE stock_profile (
     is_actively_trading BOOLEAN,
     is_adr BOOLEAN,
     is_fund BOOLEAN,
-    FOREIGN KEY (asset_id) REFERENCES asset(id) ON DELETE CASCADE
+    CONSTRAINT fk_stock_profile_asset_id
+        FOREIGN KEY (asset_id)
+        REFERENCES asset(id) ON DELETE CASCADE
 );
 
 -- Company Historical Price Data
@@ -273,7 +309,7 @@ CREATE TABLE stock_profile (
 CREATE TABLE eod_price (
     id SERIAL PRIMARY KEY,
     asset_id INTEGER NOT NULL,
-    date DATE NOT NULL,
+    end_date DATE NOT NULL,
     open NUMERIC(14, 2),
     high NUMERIC(14, 2),
     low NUMERIC(14, 2),
@@ -282,12 +318,15 @@ CREATE TABLE eod_price (
     change NUMERIC(14, 2),
     change_percent NUMERIC(14, 5),
     vwap NUMERIC(14, 4),
-    FOREIGN KEY (asset_id) REFERENCES asset(id) ON DELETE CASCADE,
-    UNIQUE (asset_id, date)
+    CONSTRAINT fk_eod_price_asset_id
+        FOREIGN KEY (asset_id)
+        REFERENCES asset(id) ON DELETE CASCADE,
+    CONSTRAINT uq_eod_price_assetdate
+        UNIQUE (asset_id, end_date)
 );
 
-CREATE INDEX idx_eod_price_asset_date ON eod_price(asset_id, date DESC);
-CREATE INDEX idx_eod_price_date ON eod_price(date DESC);
+CREATE INDEX idx_eod_price_asset_date ON eod_price(asset_id, end_date DESC);
+CREATE INDEX idx_eod_price_date ON eod_price(end_date DESC);
 
 -- Company Reporting Periods
 --     [richmosko]: Intermediate table to sync earnings, cash flows, and balance sheets
@@ -296,10 +335,16 @@ CREATE TABLE reporting_period (
     asset_id INTEGER NOT NULL,
     end_date DATE NOT NULL,
     filing_date DATE NOT NULL,
+    accepted_date TIMESTAMPTZ NOT NULL,
     fiscal_year INTEGER NOT NULL,
-    period VARCHAR(2) NOT NULL CHECK (period IN ('FY', 'Q1', 'Q2', 'Q3', 'Q4')),
-    CONSTRAINT fk_stock_period FOREIGN KEY (asset_id) REFERENCES asset(id) ON DELETE CASCADE,
-    CONSTRAINT unique_stock_period UNIQUE (asset_id, filing_date)
+    period VARCHAR(2) NOT NULL,
+    CONSTRAINT ck_reporting_period_period
+        CHECK (period IN ('FY', 'Q1', 'Q2', 'Q3', 'Q4')),
+    CONSTRAINT fk_reporting_period_asset_id
+        FOREIGN KEY (asset_id)
+        REFERENCES asset(id) ON DELETE CASCADE,
+    CONSTRAINT uq_reporting_period_assetdate
+        UNIQUE (asset_id, filing_date)
 );
 
 CREATE INDEX idx_reporting_period_asset_id ON reporting_period(asset_id, fiscal_year DESC, period);
@@ -311,8 +356,6 @@ CREATE TABLE income_statement (
     reporting_period_id INTEGER NOT NULL,
     reported_currency VARCHAR(3),
     cik VARCHAR(20),
-    filing_date DATE,
-    accepted_date TIMESTAMPTZ,
     revenue NUMERIC(18, 2),
     cost_of_revenue NUMERIC(18, 2),
     gross_profit NUMERIC(18, 2),
@@ -344,8 +387,11 @@ CREATE TABLE income_statement (
     eps_diluted NUMERIC(14, 4),
     weighted_average_shs_out BIGINT,
     weighted_average_shs_out_dil BIGINT,
-    FOREIGN KEY (reporting_period_id) REFERENCES reporting_period(id) ON DELETE CASCADE,
-    UNIQUE (reporting_period_id)
+    CONSTRAINT fk_income_statement_reporting_period
+        FOREIGN KEY (reporting_period_id)
+        REFERENCES reporting_period(id) ON DELETE CASCADE,
+    CONSTRAINT uq_income_statement_reporting_period
+        UNIQUE (reporting_period_id)
 );
 
 -- Company Balance Sheets
@@ -354,8 +400,6 @@ CREATE TABLE balance_sheet (
     reporting_period_id INTEGER NOT NULL,
     reported_currency VARCHAR(3),
     cik VARCHAR(20),
-    filing_date DATE,
-    accepted_date TIMESTAMPTZ,
     cash_and_cash_equivalents NUMERIC(18, 2),
     short_term_investments NUMERIC(18, 2),
     cash_and_short_term_investments NUMERIC(18, 2),
@@ -409,8 +453,11 @@ CREATE TABLE balance_sheet (
     total_investments NUMERIC(18, 2),
     total_debt NUMERIC(18, 2),
     net_debt NUMERIC(18, 2),
-    FOREIGN KEY (reporting_period_id) REFERENCES reporting_period(id) ON DELETE CASCADE,
-    UNIQUE (reporting_period_id)
+    CONSTRAINT fk_balance_statement_reporting_period
+        FOREIGN KEY (reporting_period_id)
+        REFERENCES reporting_period(id) ON DELETE CASCADE,
+    CONSTRAINT uq_balance_statement_reporting_period
+        UNIQUE (reporting_period_id)
 );
 
 -- Company Cash Flows
@@ -419,8 +466,6 @@ CREATE TABLE cash_flow (
     reporting_period_id INTEGER NOT NULL,
     reported_currency VARCHAR(3),
     cik VARCHAR(20),
-    filing_date DATE,
-    accepted_date TIMESTAMPTZ,
     net_income NUMERIC(18, 2),
     depreciation_and_amortization NUMERIC(18, 2),
     deferred_income_tax NUMERIC(18, 2),
@@ -460,8 +505,11 @@ CREATE TABLE cash_flow (
     free_cash_flow NUMERIC(18, 2),
     income_taxes_paid NUMERIC(18, 2),
     interest_paid NUMERIC(18, 2),
-    FOREIGN KEY (reporting_period_id) REFERENCES reporting_period(id) ON DELETE CASCADE,
-    UNIQUE (reporting_period_id)
+    CONSTRAINT fk_cash_flow_reporting_period
+        FOREIGN KEY (reporting_period_id)
+        REFERENCES reporting_period(id) ON DELETE CASCADE,
+    CONSTRAINT uq_cash_flow_reporting_period
+        UNIQUE (reporting_period_id)
 );
 
 -- Company Estimates (EPS / Rev)
@@ -475,7 +523,10 @@ CREATE TABLE estimate (
     eps_estimated NUMERIC(14, 4),
     revenue_actual NUMERIC(18, 2),
     revenue_estimated NUMERIC(18, 2),
-    last_updated DATE NOT NULL,
-    FOREIGN KEY (reporting_period_id) REFERENCES reporting_period(id) ON DELETE CASCADE,
-    UNIQUE (reporting_period_id)
+    last_updated DATE,
+    CONSTRAINT fk_estimate_reporting_period
+        FOREIGN KEY (reporting_period_id)
+        REFERENCES reporting_period(id) ON DELETE CASCADE,
+    CONSTRAINT uq_estimate_reporting_period
+        UNIQUE (reporting_period_id)
 );
