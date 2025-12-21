@@ -34,6 +34,7 @@ CREATE TABLE pfin.member (
         FOREIGN KEY (supabase_user_id)
         REFERENCES auth.users(id) ON DELETE CASCADE
 );
+COMMENT ON TABLE pfin.member IS 'List of User/Members';
 
 CREATE INDEX idx_member_email ON pfin.member(email);
 CREATE INDEX idx_member_supabase_user_id ON pfin.member(supabase_user_id);
@@ -143,6 +144,7 @@ CREATE TABLE pfin.account (
     CONSTRAINT uq_account_namecreated
         UNIQUE (acct_name, created_by)
 );
+COMMENT ON TABLE pfin.account IS 'List of Accounts and associated who is the owner';
 
 -- [richmosko]: a trigger to update the updated_at timestamp
 CREATE TRIGGER trg_update_pfinaccount_updated_at
@@ -177,6 +179,7 @@ CREATE TABLE pfin.account_access (
     CONSTRAINT uq_account_access_membernickname
         UNIQUE (member_id, nickname)
 );
+COMMENT ON TABLE pfin.account_access IS 'Defines what members can access which account';
 
 CREATE INDEX idx_account_access_member_id ON pfin.account_access(member_id);
 
@@ -208,6 +211,7 @@ CREATE TABLE pfin.asset (
         FOREIGN KEY(asset_cat_id)
         REFERENCES pfin.asset_cat(id) ON DELETE RESTRICT
 );
+COMMENT ON TABLE pfin.asset IS 'Assets can be stocks, bonds, or whatever is defined in asset_cat';
 
 CREATE INDEX idx_asset_cat_id ON pfin.asset(asset_cat_id);
 
@@ -352,6 +356,7 @@ CREATE TABLE pfin.reporting_period (
     CONSTRAINT uq_reporting_period_assetdate
         UNIQUE (asset_id, filing_date)
 );
+COMMENT ON TABLE pfin.reporting_period IS 'Lists valid reporint periods per asset if available';
 
 CREATE INDEX idx_reporting_period_asset_id ON pfin.reporting_period(asset_id, fiscal_year DESC, period);
 CREATE INDEX idx_reporting_period_fiscal_year ON pfin.reporting_period(fiscal_year DESC, period);
