@@ -44,6 +44,7 @@ CREATE INDEX idx_member_supabase_user_id ON pfin.member(supabase_user_id);
 CREATE OR REPLACE FUNCTION pfin.fn_update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
+    SET search_path TO pfin, pg_catalog;
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
@@ -59,11 +60,12 @@ CREATE TRIGGER trg_update_pfinmember_updated_at
 CREATE OR REPLACE FUNCTION pfin.fn_handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
+    SET search_path TO pfin, pg_catalog;
     INSERT INTO pfin.member (supabase_user_id, email)
     VALUES (NEW.id, NEW.email);
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_on_pfinauth_user_created
     AFTER INSERT ON auth.users
@@ -74,13 +76,14 @@ CREATE TRIGGER trg_on_pfinauth_user_created
 CREATE OR REPLACE FUNCTION pfin.fn_sync_user_email()
 RETURNS TRIGGER AS $$
 BEGIN
+    SET search_path TO pfin, pg_catalog;
     UPDATE pfin.member 
     SET email = NEW.email,
-        updated_at = NOW()
+        updated_at = public.NOW()
     WHERE supabase_user_id = NEW.id;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_on_pfinauth_user_email_updated
     AFTER UPDATE OF email ON auth.users
@@ -102,6 +105,24 @@ CREATE TABLE pfin.account_type (
     is_liability BOOLEAN NOT NULL,
     notes TEXT
 );
+
+INSERT INTO pfin.account_type
+    (name, is_taxable, is_tax_deferred, is_liability, notes)
+VALUES
+    ('Banking', TRUE, FALSE, FALSE, 'FDIC insured checking / saving account'),
+    ('Brokerage', TRUE, FALSE, FALSE, 'SIDC insured, taxable investing account'),
+    ('Credit Card', FALSE, FALSE, TRUE, 'Revolving credit'),
+    ('Loan', FALSE, FALSE, TRUE, 'Mortgage or other long term debt'),
+    ('Traditional IRA', TRUE, TRUE, FALSE, 'SIDC insured tax-deferred retirement investing account'),
+    ('ROTH IRA', FALSE, FALSE, FALSE, 'SIDC insured tax-free retirement investing account'),
+    ('Real Estate', TRUE, FALSE, FALSE, 'Real estate and other tangible assets'),
+    ('Tax Agency', FALSE, FALSE, TRUE, 'Account of balances at taxing agencies'),
+    ('Entertainment', FALSE, FALSE, FALSE, 'Accounts for subscriptions and other entertainment'),
+    ('Shopping', FALSE, FALSE, FALSE, 'Accounts for discretionary spending'),
+    ('Utilities', FALSE, FALSE, FALSE, 'Accounts for recurring utility bills'),
+    ('Personal_ID', FALSE, FALSE, FALSE,
+     'Accounts to track personal information and identity (health, email, credit agencies, etc.)'),
+    ('VIRTUAL', FALSE, FALSE, FALSE, 'Aggregate of multiple accounts');
 
 -- Asset Categories: Valid assets to track. ie: cash, bonds, equity, alt, etc.
 -- and associated sub-categories
@@ -188,6 +209,7 @@ CREATE INDEX idx_account_access_member_id ON pfin.account_access(member_id);
 CREATE OR REPLACE FUNCTION pfin.fn_grant_creator_access()
 RETURNS TRIGGER AS $$
 BEGIN
+    SET search_path TO pfin, pg_catalog;
     INSERT INTO pfin.account_access (account_id, member_id, access_level, granted_by, nickname)
     VALUES (NEW.id, NEW.created_by, 'owner', NEW.created_by, NEW.acct_name);
     RETURN NEW;
@@ -563,7 +585,6 @@ CREATE TABLE pfin.schema_version (
 );
 
 INSERT INTO pfin.schema_version (
-    id,
     major_release,
     minor_release,
     point_release,
