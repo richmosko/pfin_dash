@@ -134,14 +134,113 @@ CREATE TABLE pfin.asset_cat (
     CONSTRAINT uq_asset_cat UNIQUE(cat, sub_cat)
 );
 
+INSERT INTO pfin.asset_cat
+    (cat, sub_cat, notes)
+VALUES
+    ('Cash', 'FDIC', 'Federal Deposit Insurance Corp.'),
+    ('Cash', 'SPIC', 'Securities Investor Protection Corp.'),
+    ('Cash', 'T-Bill', 'Treasury Bill (less than 1 year duration)'),
+    ('Cash', 'CD', 'Certificate of Deposit'),
+    ('Bonds', 'IGL', 'Investment Grade (A and above) Long Duration (3-7 year)'),
+    ('Bonds', 'IGI', 'Investment Grate (A and above) Intermediate Duration (under 3 year)'),
+    ('Bonds', 'HYI', 'High Yield (B and above) Intermediate Duration (under 3 year)'),
+    ('Bonds', 'INTL', 'International (A and above) Long Duration (3-7 year)'),
+    ('Equity', 'US-01-Basic_Materials', 'US (GICS) Basic Materials Sector'),
+    ('Equity', 'US-02-Telecom', 'US (GICS) Telecommunications Sector'),
+    ('Equity', 'US-03-Consumer_Discretionary', 'US (GICS) Consumer Discretionary Sector'),
+    ('Equity', 'US-04-Consumer_Staples', 'US (GICS) Consumer Staples Sector'),
+    ('Equity', 'US-05-Energy', 'US (GICS) Energy Sector'),
+    ('Equity', 'US-06-Financials', 'US (GICS) Financials Sector'),
+    ('Equity', 'US-07-Health_Care', 'US (GICS) Health Care Sector'),
+    ('Equity', 'US-08-Industrials', 'US (GICS) Industrial Manufaaturing Sector'),
+    ('Equity', 'US-09-Information_Technology', 'US (GICS) Information Technology Sector'),
+    ('Equity', 'US-10-Utilities', 'US (GICS) Utilities Sector'),
+    ('Equity', 'US-Index-Non_Sector', 'US non-sector based broad market index ETF'),
+    ('Equity', 'US-Growth-Non_Sector', 'US Growth stock or ETF'),
+    ('Equity', 'ExUS-Developed_Market', 'Developed Market stock or ETF outside the US'),
+    ('Equity', 'ExUS-Emerging_Market', 'Emerging Market stock or ETF'),
+    ('Alternatives', 'REIT', 'Real Estate Investemnt Trust ETF'),
+    ('Alternatives', 'Crypto-Fx', 'Cryptocurrency or Foreign Currency'),
+    ('Alternatives', 'Commodities-Other', 'Commoditiy or Other non-revenue producing asset'),
+    ('Alternatives', 'Volatility-Hedges', 'Option or Future as a hedge investent'),
+    ('Alternatives', 'Volatility-60/40', 'IRS Section 1256 contract on Index/ForEx/Commodity'),
+    ('Liabilities', 'Credit-Balance', 'Credit Card or other Revolving Credit Balance'),
+    ('Liabilities', 'EstTax-Pending', 'Estimated Taxes Due but not yet paid'),
+    ('Liabilities', 'Loan-Balance', 'Outstanding Balance on a loan'),
+    ('Real Estate', 'Residential', 'Residential Property'),
+    ('Real Estate', 'Commercial', 'Commercial Property'),
+    ('Real Estate', 'Remodel-Equity', 'In-Progress Equity from a remodel that isn''t assesed yet'),
+    ('Real Estate', 'Vehicle', 'Vehicles and similar depreciating assets'),
+    ('Real Estate', 'Misc', 'Miscellaneous other tangible/sellable assets');
+
+-- Tax Categories: Ways that different income streams (or transactions in general)
+-- are treated.
+CREATE TABLE pfin.tax_cat (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(16) NOT NULL,
+    tax_as_ordinary BOOLEAN NOT NULL DEFAULT FALSE,
+    tax_as_cap_gain BOOLEAN NOT NULL DEFAULT FALSE,
+    tax_as_sec_1246 BOOLEAN NOT NULL DEFAULT FALSE,
+    notes TEXT
+);
+COMMENT ON TABLE pfin.tax_cat IS 'How the transaction should be treated for tax purposes.';
+
+INSERT INTO pfin.tax_cat
+    (id, name, tax_as_ordinary, tax_as_cap_gain, tax_as_sec_1246, notes)
+VALUES
+    (1, 'none', FALSE, FALSE, FALSE, 'untaxed transaction'),
+    (2, 'ord-inc', TRUE, FALSE, FALSE, 'ordinary income'),
+    (3, 'inv-inc', FALSE, TRUE, FALSE, 'capital gains and other investment income'),
+    (4, 'irs-6040', FALSE, FALSE, TRUE, 'IRS section 1256, tax at 60% long-term & 40% short-term rates');
+
 -- Transaction Categories: Valid transactions types
 CREATE TABLE pfin.trans_cat (
     id SERIAL PRIMARY KEY,
     cat VARCHAR(128) NOT NULL,
     sub_cat VARCHAR(128) NOT NULL,
+    tax_cat_id INTEGER,
     notes TEXT,
+    CONSTRAINT fk_account_trans_tax_cat_id
+        FOREIGN KEY(tax_cat_id)
+        REFERENCES pfin.tax_cat(id) ON DELETE RESTRICT,
     CONSTRAINT uq_trans_cat UNIQUE(cat, sub_cat)
 );
+
+INSERT INTO pfin.trans_cat
+    (cat, sub_cat, tax_cat_id, notes)
+VALUES
+    ('Income', 'Interest-TaxFree', 1, 'Tax Free Interest Income'),
+    ('Income', 'Interest-Cash', 2, 'Interest Income from Cash'),
+    ('Income', 'Interest-Bond_CD', 2, 'Interest Income from a Bond or Certificate of Deposit'),
+    ('Income', 'Rent-Misc', 2, 'Miscellaneous Rental Income'),
+    ('Income', 'Bond-Premium', 2, 'Mark-to-Market Gain for Tax Purposes'),
+    ('Income', 'Dividend', 3, 'Dividend from a Stock or ETF'),
+    ('Income', 'Salary-Untagged', 2, 'Income from Salary - Untagged Person'),
+    ('Expenses', 'Auto & Transport', NULL, 'Auto and Transportation Expenses'),
+    ('Expenses', 'Bills & Utilities', NULL, 'Utilities and other Bills'),
+    ('Expenses', 'Cash & ATM', NULL, 'Cash and ATM withdrawls'),
+    ('Expenses', 'Entertainment', NULL, 'Entertainment Expenses'),
+    ('Expenses', 'Food, Dining, & Alcohol', NULL, 'Food, Dining, and Alcohol Expenses'),
+    ('Expenses', 'Gifts and Donations', NULL, 'Gifts and Donation Expenses'),
+    ('Expenses', 'Health & Fitness', NULL, 'Health and Fitness Expenses'),
+    ('Expenses', 'Home', NULL, 'Home and Home Maintenance Expenses'),
+    ('Expenses', 'Misc', NULL, 'Miscellaneous Expenses'),
+    ('Expenses', 'Personal Care', NULL, 'Hair Cuts, Massages, and other Person Care Expenses'),
+    ('Expenses', 'Shopping', NULL, 'Shopping Expenses'),
+    ('Expenses', 'Travel', NULL, 'Travel related Expenses'),
+    ('OtherCF', 'Transfer', NULL, 'Transfer between Accounts'),
+    ('OtherCF', 'TaxFed', NULL, 'Federal Tax Payments / Witholding - Transfer to Government'),
+    ('OtherCF', 'TaxCA', NULL, 'California Tax Payments / Witholding - Transfer to Government'),
+    ('OtherCF', 'BigTicket', NULL, 'Tag as a Big Ticket Expense - Transfer to Slush Fund'),
+    ('OtherCF', 'BTO', NULL, 'Buy to Open (Long) Asset Transaction'),
+    ('OtherCF', 'STC', 3, 'Sell to Close (Long) Asset Transaction'),
+    ('OtherCF', 'STC-6040', 4, 'Sell to Close (Long) IRS-1256 Option or Future'),
+    ('OtherCF', 'BTC', NULL, 'Buy to Close (Short) Asset Transaction'),
+    ('OtherCF', 'STO', 3, 'Sell to Open (Short) Asset Transaction'),
+    ('OtherCF', 'STO-6040', 4, 'Sell to Open (Short) IRS-1256 Option or Future'),
+    ('AcctSetup', 'Add-Item', NULL, 'Add Asset/Cash to Account'),
+    ('AcctSetup', 'Remove-Item', NULL, 'Remove Asset/Cash from Account'),
+    ('Holding', 'Import', NULL, 'Imported Holding from Account Statement');
 
 
 -- ================================
@@ -246,6 +345,7 @@ CREATE TABLE pfin.account_trans (
     asset_id INTEGER NOT NULL,
     trans_cat_id INTEGER NOT NULL,
     trans_date DATE NOT NULL,
+    tax_state_name VARCHAR(2), -- [richmosko]: US state where taxes are asessed (if applicable)
     price NUMERIC(14, 4),
     qty NUMERIC(14, 4),
     amount NUMERIC(14, 2),
