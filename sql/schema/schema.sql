@@ -396,7 +396,7 @@ CREATE TABLE pfin.nav (
     nav_date DATE NOT NULL,
     asset_cat_id INTEGER NOT NULL,
     nav_val NUMERIC (18, 2) NOT NULL,
-    cpi_u NUMERIC (14, 4), NOT NULL, -- richmosko: Consumer Price Index - Urban
+    cpi_u NUMERIC (14, 4) NOT NULL, -- richmosko: Consumer Price Index - Urban
     CONSTRAINT fk_nav_member_id
         FOREIGN KEY (member_id)
         REFERENCES pfin.member(id) ON DELETE CASCADE,
