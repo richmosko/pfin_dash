@@ -48,7 +48,7 @@ BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER; -- Add SECURITY DEFINER
 
 -- Add a trigger to update updated_at timestamp
 CREATE TRIGGER trg_update_pfinmember_updated_at
@@ -60,12 +60,12 @@ CREATE TRIGGER trg_update_pfinmember_updated_at
 CREATE OR REPLACE FUNCTION pfin.fn_handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-    SET search_path TO pfin, pg_catalog;
+    SET search_path TO auth, pfin, pg_catalog;
     INSERT INTO pfin.member (supabase_user_id, email)
     VALUES (NEW.id, NEW.email);
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER; -- Add SECURITY DEFINER
 
 CREATE TRIGGER trg_on_pfinauth_user_created
     AFTER INSERT ON auth.users
@@ -76,14 +76,14 @@ CREATE TRIGGER trg_on_pfinauth_user_created
 CREATE OR REPLACE FUNCTION pfin.fn_sync_user_email()
 RETURNS TRIGGER AS $$
 BEGIN
-    SET search_path TO pfin, pg_catalog;
+    SET search_path TO auth, pfin, pg_catalog;
     UPDATE pfin.member 
     SET email = NEW.email,
         updated_at = public.NOW()
     WHERE supabase_user_id = NEW.id;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER; -- Add SECURITY DEFINER
 
 CREATE TRIGGER trg_on_pfinauth_user_email_updated
     AFTER UPDATE OF email ON auth.users
