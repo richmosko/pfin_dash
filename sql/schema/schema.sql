@@ -135,43 +135,44 @@ CREATE TABLE pfin.asset_cat (
 );
 
 INSERT INTO pfin.asset_cat
-    (cat, sub_cat, notes)
+    (id, cat, sub_cat, notes)
 VALUES
-    ('Cash', 'FDIC', 'Federal Deposit Insurance Corp.'),
-    ('Cash', 'SPIC', 'Securities Investor Protection Corp.'),
-    ('Cash', 'T-Bill', 'Treasury Bill (less than 1 year duration)'),
-    ('Cash', 'CD', 'Certificate of Deposit'),
-    ('Bonds', 'IGL', 'Investment Grade (A and above) Long Duration (3-7 year)'),
-    ('Bonds', 'IGI', 'Investment Grate (A and above) Intermediate Duration (under 3 year)'),
-    ('Bonds', 'HYI', 'High Yield (B and above) Intermediate Duration (under 3 year)'),
-    ('Bonds', 'INTL', 'International (A and above) Long Duration (3-7 year)'),
-    ('Equity', 'US-01-Basic_Materials', 'US (GICS) Basic Materials Sector'),
-    ('Equity', 'US-02-Telecom', 'US (GICS) Telecommunications Sector'),
-    ('Equity', 'US-03-Consumer_Discretionary', 'US (GICS) Consumer Discretionary Sector'),
-    ('Equity', 'US-04-Consumer_Staples', 'US (GICS) Consumer Staples Sector'),
-    ('Equity', 'US-05-Energy', 'US (GICS) Energy Sector'),
-    ('Equity', 'US-06-Financials', 'US (GICS) Financials Sector'),
-    ('Equity', 'US-07-Health_Care', 'US (GICS) Health Care Sector'),
-    ('Equity', 'US-08-Industrials', 'US (GICS) Industrial Manufaaturing Sector'),
-    ('Equity', 'US-09-Information_Technology', 'US (GICS) Information Technology Sector'),
-    ('Equity', 'US-10-Utilities', 'US (GICS) Utilities Sector'),
-    ('Equity', 'US-Index-Non_Sector', 'US non-sector based broad market index ETF'),
-    ('Equity', 'US-Growth-Non_Sector', 'US Growth stock or ETF'),
-    ('Equity', 'ExUS-Developed_Market', 'Developed Market stock or ETF outside the US'),
-    ('Equity', 'ExUS-Emerging_Market', 'Emerging Market stock or ETF'),
-    ('Alternatives', 'REIT', 'Real Estate Investemnt Trust ETF'),
-    ('Alternatives', 'Crypto-Fx', 'Cryptocurrency or Foreign Currency'),
-    ('Alternatives', 'Commodities-Other', 'Commoditiy or Other non-revenue producing asset'),
-    ('Alternatives', 'Volatility-Hedges', 'Option or Future as a hedge investent'),
-    ('Alternatives', 'Volatility-60/40', 'IRS Section 1256 contract on Index/ForEx/Commodity'),
-    ('Liabilities', 'Credit-Balance', 'Credit Card or other Revolving Credit Balance'),
-    ('Liabilities', 'EstTax-Pending', 'Estimated Taxes Due but not yet paid'),
-    ('Liabilities', 'Loan-Balance', 'Outstanding Balance on a loan'),
-    ('Real Estate', 'Residential', 'Residential Property'),
-    ('Real Estate', 'Commercial', 'Commercial Property'),
-    ('Real Estate', 'Remodel-Equity', 'In-Progress Equity from a remodel that isn''t assesed yet'),
-    ('Real Estate', 'Vehicle', 'Vehicles and similar depreciating assets'),
-    ('Real Estate', 'Misc', 'Miscellaneous other tangible/sellable assets');
+    (1, 'Cash', 'FDIC', 'Federal Deposit Insurance Corp.'),
+    (2, 'Cash', 'SPIC', 'Securities Investor Protection Corp.'),
+    (3, 'Cash', 'T-Bill', 'Treasury Bill (less than 1 year duration)'),
+    (4, 'Cash', 'CD', 'Certificate of Deposit'),
+    (5, 'Bonds', 'IGL', 'Investment Grade (A and above) Long Duration (3-7 year)'),
+    (6, 'Bonds', 'IGI', 'Investment Grate (A and above) Intermediate Duration (under 3 year)'),
+    (7, 'Bonds', 'HYI', 'High Yield (B and above) Intermediate Duration (under 3 year)'),
+    (8, 'Bonds', 'INTL', 'International (A and above) Long Duration (3-7 year)'),
+    (9, 'Equity', 'UNKNOWN', 'To be defined (initial adding), or otherwise unknown sub-category'),
+    (10, 'Equity', 'US-01-Basic_Materials', 'US (GICS) Basic Materials Sector'),
+    (11, 'Equity', 'US-02-Telecom', 'US (GICS) Telecommunications Sector'),
+    (12, 'Equity', 'US-03-Consumer_Discretionary', 'US (GICS) Consumer Discretionary Sector'),
+    (13, 'Equity', 'US-04-Consumer_Staples', 'US (GICS) Consumer Staples Sector'),
+    (14, 'Equity', 'US-05-Energy', 'US (GICS) Energy Sector'),
+    (15, 'Equity', 'US-06-Financials', 'US (GICS) Financials Sector'),
+    (16, 'Equity', 'US-07-Health_Care', 'US (GICS) Health Care Sector'),
+    (17, 'Equity', 'US-08-Industrials', 'US (GICS) Industrial Manufaaturing Sector'),
+    (18, 'Equity', 'US-09-Information_Technology', 'US (GICS) Information Technology Sector'),
+    (19, 'Equity', 'US-10-Utilities', 'US (GICS) Utilities Sector'),
+    (20, 'Equity', 'US-Index-Non_Sector', 'US non-sector based broad market index ETF'),
+    (21, 'Equity', 'US-Growth-Non_Sector', 'US Growth stock or ETF'),
+    (22, 'Equity', 'ExUS-Developed_Market', 'Developed Market stock or ETF outside the US'),
+    (23, 'Equity', 'ExUS-Emerging_Market', 'Emerging Market stock or ETF'),
+    (24, 'Alternatives', 'REIT', 'Real Estate Investemnt Trust ETF'),
+    (25, 'Alternatives', 'Crypto-Fx', 'Cryptocurrency or Foreign Currency'),
+    (26, 'Alternatives', 'Commodities-Other', 'Commoditiy or Other non-revenue producing asset'),
+    (27, 'Alternatives', 'Volatility-Hedges', 'Option or Future as a hedge investent'),
+    (28, 'Alternatives', 'Volatility-60/40', 'IRS Section 1256 contract on Index/ForEx/Commodity'),
+    (29, 'Liabilities', 'Credit-Balance', 'Credit Card or other Revolving Credit Balance'),
+    (30, 'Liabilities', 'EstTax-Pending', 'Estimated Taxes Due but not yet paid'),
+    (31, 'Liabilities', 'Loan-Balance', 'Outstanding Balance on a loan'),
+    (32, 'Real Estate', 'Residential', 'Residential Property'),
+    (33, 'Real Estate', 'Commercial', 'Commercial Property'),
+    (34, 'Real Estate', 'Remodel-Equity', 'In-Progress Equity from a remodel that isn''t assesed yet'),
+    (35, 'Real Estate', 'Vehicle', 'Vehicles and similar depreciating assets'),
+    (36, 'Real Estate', 'Misc', 'Miscellaneous other tangible/sellable assets');
 
 -- Tax Categories: Ways that different income streams (or transactions in general)
 -- are treated.
@@ -334,6 +335,12 @@ CREATE TABLE pfin.asset (
         REFERENCES pfin.asset_cat(id) ON DELETE RESTRICT
 );
 COMMENT ON TABLE pfin.asset IS 'Assets can be stocks, bonds, or whatever is defined in asset_cat';
+
+INSERT INTO pfin.asset
+    (symbol, asset_cat_id, description)
+VALUES
+    ('CASH', 1, 'Cash or cash-like holdings'),
+    ('Money Market', 2, 'Cash or cash-like holdings');
 
 CREATE INDEX idx_asset_cat_id ON pfin.asset(asset_cat_id);
 
