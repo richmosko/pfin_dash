@@ -328,6 +328,8 @@ CREATE TABLE pfin.asset (
     id SERIAL PRIMARY KEY,
     symbol VARCHAR (16) UNIQUE NOT NULL,
     asset_cat_id INTEGER NOT NULL,
+    has_financials BOOLEAN NOT NULL DEFAULT FALSE, -- SEC Financial Statements
+    has_chart BOOLEAN NOT NULL DEFAULT FALSE,
     description TEXT,
     exp_date DATE, -- [richmosko]: If NULL, then no expiration date
     CONSTRAINT fk_asset_asset_cat_id
@@ -337,10 +339,11 @@ CREATE TABLE pfin.asset (
 COMMENT ON TABLE pfin.asset IS 'Assets can be stocks, bonds, or whatever is defined in asset_cat';
 
 INSERT INTO pfin.asset
-    (symbol, asset_cat_id, description)
+    (symbol, asset_cat_id, has_financials, has_chart, description)
 VALUES
-    ('CASH', 1, 'Cash or cash-like holdings'),
-    ('Money Market', 2, 'Cash or cash-like holdings');
+    ('CASH', 1, FALSE, FALSE, 'Cash or cash-like holdings'),
+    ('Money Market', 2, FALSE, FALSE, 'Brokerage Money Market funds'),
+    ('VOO', 20, FALSE, TRUE, 'Vanguard S&P500 Index ETF');
 
 CREATE INDEX idx_asset_cat_id ON pfin.asset(asset_cat_id);
 
@@ -396,6 +399,22 @@ CREATE TABLE pfin.watchlist (
 );
 
 
+-- BLS Consumer Price Index - Urban (CPI-U)
+--     [richmosko]:  from BLS API JSON query
+CREATE TABLE pfin.cpi (
+    id SERIAL PRIMARY KEY,
+    year INTEGER NOT NULL,
+    month INTEGER NOT NULL,
+    period_name VARCHAR (20),
+    series_value NUMERIC (14, 4) NOT NULL,
+    series_id VARCHAR (11) NOT NULL,
+    series_name VARCHAR (20),
+    ref_date DATE NOT NULL,
+    CONSTRAINT uq_cpi_date
+        UNIQUE (series_id, year, month)
+);
+COMMENT ON TABLE pfin.cpi IS 'BLS Consumer Price Index';
+
 -- Historical Net Asset Value (NAV) tracking.
 CREATE TABLE pfin.nav (
     id SERIAL PRIMARY KEY,
@@ -403,13 +422,16 @@ CREATE TABLE pfin.nav (
     nav_date DATE NOT NULL,
     asset_cat_id INTEGER NOT NULL,
     nav_val NUMERIC (18, 2) NOT NULL,
-    cpi_u NUMERIC (14, 4) NOT NULL, -- richmosko: Consumer Price Index - Urban
+    cpi_id INTEGER NOT NULL,
     CONSTRAINT fk_nav_member_id
         FOREIGN KEY (member_id)
         REFERENCES pfin.member(id) ON DELETE CASCADE,
     CONSTRAINT fk_nav_asset_cat_id
         FOREIGN KEY (asset_cat_id)
         REFERENCES pfin.asset_cat(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_nav_cpi_id
+        FOREIGN KEY (cpi_id)
+        REFERENCES pfin.cpi(id) ON DELETE CASCADE,
     CONSTRAINT uq_nav_memberdate
         UNIQUE (member_id, nav_date)
 );
@@ -421,7 +443,7 @@ CREATE TABLE pfin.nav (
 
 -- List of Company Names: Extended Company Information
 --     [richmosko]:  from FMP "profile" JSON query
-CREATE TABLE pfin.stock_profile (
+CREATE TABLE pfin.equity_profile (
     asset_id INTEGER PRIMARY KEY,
     price NUMERIC (14, 2),
     market_cap NUMERIC (18, 2),
@@ -444,12 +466,12 @@ CREATE TABLE pfin.stock_profile (
     description TEXT,
     ceo VARCHAR (100),
     sector VARCHAR (50),
-    country VARCHAR (2),
+    country VARCHAR (100),
     full_time_employees INTEGER,
     phone VARCHAR (20),
     address VARCHAR (255),
     city VARCHAR (100),
-    state VARCHAR (2),
+    state VARCHAR (10),
     zip VARCHAR (10),
     image VARCHAR (255),
     ipo_date DATE,
@@ -458,10 +480,18 @@ CREATE TABLE pfin.stock_profile (
     is_actively_trading BOOLEAN,
     is_adr BOOLEAN,
     is_fund BOOLEAN,
-    CONSTRAINT fk_stock_profile_asset_id
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_equity_profile_asset_id
         FOREIGN KEY (asset_id)
         REFERENCES pfin.asset(id) ON DELETE CASCADE
 );
+COMMENT ON TABLE pfin.equity_profile IS 'Extended profile information for stocks, ETFs, and funds';
+
+-- [richmosko]: a trigger to update the updated_at timestamp
+CREATE TRIGGER trg_update_pfinequityprofile_updated_at
+    BEFORE UPDATE ON pfin.equity_profile
+    FOR EACH ROW
+    EXECUTE FUNCTION pfin.fn_update_updated_at_column();
 
 -- Company Historical Price Data
 --     [richmosko]:  from FMP "historical-price-eod/full" JSON query
@@ -493,7 +523,7 @@ CREATE TABLE pfin.reporting_period (
     id SERIAL PRIMARY KEY,
     asset_id INTEGER NOT NULL,
     end_date DATE NOT NULL,
-    filing_date DATE NOT NULL,
+    filing_date DATE NOT NULL, -- align on this date
     accepted_date TIMESTAMPTZ NOT NULL,
     fiscal_year INTEGER NOT NULL,
     period VARCHAR (2) NOT NULL,
@@ -512,7 +542,6 @@ CREATE INDEX idx_reporting_period_fiscal_year ON pfin.reporting_period(fiscal_ye
 
 -- Company Income Statements
 CREATE TABLE pfin.income_statement (
-    id SERIAL PRIMARY KEY,
     reporting_period_id INTEGER NOT NULL,
     reported_currency VARCHAR(3),
     cik VARCHAR (20),
@@ -547,16 +576,22 @@ CREATE TABLE pfin.income_statement (
     eps_diluted NUMERIC (14, 4),
     weighted_average_shs_out BIGINT,
     weighted_average_shs_out_dil BIGINT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_income_statement_reporting_period
         FOREIGN KEY (reporting_period_id)
         REFERENCES pfin.reporting_period(id) ON DELETE CASCADE,
-    CONSTRAINT uq_income_statement_reporting_period
-        UNIQUE (reporting_period_id)
+    CONSTRAINT pk_income_statement
+        PRIMARY KEY (reporting_period_id)
 );
 
+-- [richmosko]: a trigger to update the updated_at timestamp
+CREATE TRIGGER trg_update_pfinincomestatement_updated_at
+    BEFORE UPDATE ON pfin.income_statement
+    FOR EACH ROW
+    EXECUTE FUNCTION pfin.fn_update_updated_at_column();
+
 -- Company Balance Sheets
-CREATE TABLE pfin.balance_sheet (
-    id SERIAL PRIMARY KEY,
+CREATE TABLE pfin.balance_sheet_statement (
     reporting_period_id INTEGER NOT NULL,
     reported_currency VARCHAR (3),
     cik VARCHAR (20),
@@ -613,16 +648,22 @@ CREATE TABLE pfin.balance_sheet (
     total_investments NUMERIC (18, 2),
     total_debt NUMERIC (18, 2),
     net_debt NUMERIC (18, 2),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_balance_statement_reporting_period
         FOREIGN KEY (reporting_period_id)
         REFERENCES pfin.reporting_period(id) ON DELETE CASCADE,
-    CONSTRAINT uq_balance_statement_reporting_period
-        UNIQUE (reporting_period_id)
+    CONSTRAINT pk_balance_sheet
+        PRIMARY KEY (reporting_period_id)
 );
 
+-- [richmosko]: a trigger to update the updated_at timestamp
+CREATE TRIGGER trg_update_pfinbalancesheetstatement_updated_at
+    BEFORE UPDATE ON pfin.balance_sheet_statement
+    FOR EACH ROW
+    EXECUTE FUNCTION pfin.fn_update_updated_at_column();
+
 -- Company Cash Flows
-CREATE TABLE pfin.cash_flow (
-    id SERIAL PRIMARY KEY,
+CREATE TABLE pfin.cash_flow_statement (
     reporting_period_id INTEGER NOT NULL,
     reported_currency VARCHAR (3),
     cik VARCHAR (20),
@@ -665,31 +706,44 @@ CREATE TABLE pfin.cash_flow (
     free_cash_flow NUMERIC (18, 2),
     income_taxes_paid NUMERIC (18, 2),
     interest_paid NUMERIC (18, 2),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_cash_flow_reporting_period
         FOREIGN KEY (reporting_period_id)
         REFERENCES pfin.reporting_period(id) ON DELETE CASCADE,
-    CONSTRAINT uq_cash_flow_reporting_period
-        UNIQUE (reporting_period_id)
+    CONSTRAINT pk_cash_flow
+        PRIMARY KEY (reporting_period_id)
 );
+
+-- [richmosko]: a trigger to update the updated_at timestamp
+CREATE TRIGGER trg_update_pfincashflowstatement_updated_at
+    BEFORE UPDATE ON pfin.cash_flow_statement
+    FOR EACH ROW
+    EXECUTE FUNCTION pfin.fn_update_updated_at_column();
 
 -- Company Estimates (EPS / Rev)
 --     [richmosko]: the FMP "stable/earnings" query has EPS and revenue estimates for future
 --     reports as well as historical reports... but doesn't have that for the normal
 --     income statements.
 CREATE TABLE pfin.estimate (
-    id SERIAL PRIMARY KEY,
     reporting_period_id INTEGER NOT NULL,
     eps_actual NUMERIC (14, 4),
     eps_estimated NUMERIC (14, 4),
     revenue_actual NUMERIC (18, 2),
     revenue_estimated NUMERIC (18, 2),
     last_updated DATE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_estimate_reporting_period
         FOREIGN KEY (reporting_period_id)
         REFERENCES pfin.reporting_period(id) ON DELETE CASCADE,
-    CONSTRAINT uq_estimate_reporting_period
-        UNIQUE (reporting_period_id)
+    CONSTRAINT pk_estimate
+        PRIMARY KEY (reporting_period_id)
 );
+
+-- [richmosko]: a trigger to update the updated_at timestamp
+CREATE TRIGGER trg_update_pfinestimate_updated_at
+    BEFORE UPDATE ON pfin.estimate
+    FOR EACH ROW
+    EXECUTE FUNCTION pfin.fn_update_updated_at_column();
 
 
 -- ==========================================================
@@ -716,8 +770,8 @@ INSERT INTO pfin.schema_version (
     point_release,
     script_name
 ) VALUES (
-    '01',
     '00',
-    '0000',
+    '04',
+    '0001',
     'sql/schema/schema.sql'
 );
