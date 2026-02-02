@@ -507,6 +507,7 @@ CREATE TABLE pfin.eod_price (
     change NUMERIC (14, 2),
     change_percent NUMERIC (14, 5),
     vwap NUMERIC (14, 4),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_eod_price_asset_id
         FOREIGN KEY (asset_id)
         REFERENCES pfin.asset(id) ON DELETE CASCADE,
@@ -517,25 +518,31 @@ CREATE TABLE pfin.eod_price (
 CREATE INDEX idx_eod_price_asset_date ON pfin.eod_price(asset_id, end_date DESC);
 CREATE INDEX idx_eod_price_date ON pfin.eod_price(end_date DESC);
 
+-- [richmosko]: a trigger to update the updated_at timestamp
+CREATE TRIGGER trg_update_pfineodprice_updated_at
+    BEFORE UPDATE ON pfin.eod_price
+    FOR EACH ROW
+    EXECUTE FUNCTION pfin.fn_update_updated_at_column();
+
 -- Company Reporting Periods
 --     [richmosko]: Intermediate table to sync earnings, cash flows, and balance sheets
 CREATE TABLE pfin.reporting_period (
     id SERIAL PRIMARY KEY,
     asset_id INTEGER NOT NULL,
-    end_date DATE NOT NULL,
-    filing_date DATE NOT NULL, -- align on this date
-    accepted_date TIMESTAMPTZ NOT NULL,
     fiscal_year INTEGER NOT NULL,
     period VARCHAR (2) NOT NULL,
+    filing_date DATE NOT NULL,
+    accepted_date TIMESTAMPTZ,
+    end_date DATE,
     CONSTRAINT ck_reporting_period_period
-        CHECK (period IN ('FY', 'Q1', 'Q2', 'Q3', 'Q4')),
+        CHECK (period IN ('NA', 'FY', 'Q1', 'Q2', 'Q3', 'Q4')),
     CONSTRAINT fk_reporting_period_asset_id
         FOREIGN KEY (asset_id)
         REFERENCES pfin.asset(id) ON DELETE CASCADE,
-    CONSTRAINT uq_reporting_period_assetdate
-        UNIQUE (asset_id, filing_date)
+    CONSTRAINT uq_reporting_period_assetyearperiod
+        UNIQUE (asset_id, fiscal_year, period)
 );
-COMMENT ON TABLE pfin.reporting_period IS 'Lists valid reporint periods per asset if available';
+COMMENT ON TABLE pfin.reporting_period IS 'Lists valid reporting periods per asset if available';
 
 CREATE INDEX idx_reporting_period_asset_id ON pfin.reporting_period(asset_id, fiscal_year DESC, period);
 CREATE INDEX idx_reporting_period_fiscal_year ON pfin.reporting_period(fiscal_year DESC, period);
@@ -720,12 +727,13 @@ CREATE TRIGGER trg_update_pfincashflowstatement_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION pfin.fn_update_updated_at_column();
 
--- Company Estimates (EPS / Rev)
+-- Company Earnings (EPS / Rev)
 --     [richmosko]: the FMP "stable/earnings" query has EPS and revenue estimates for future
 --     reports as well as historical reports... but doesn't have that for the normal
 --     income statements.
-CREATE TABLE pfin.estimate (
+CREATE TABLE pfin.earning (
     reporting_period_id INTEGER NOT NULL,
+    ref_date DATE NOT NULL, -- date from the earnings query
     eps_actual NUMERIC (14, 4),
     eps_estimated NUMERIC (14, 4),
     revenue_actual NUMERIC (18, 2),
@@ -735,13 +743,13 @@ CREATE TABLE pfin.estimate (
     CONSTRAINT fk_estimate_reporting_period
         FOREIGN KEY (reporting_period_id)
         REFERENCES pfin.reporting_period(id) ON DELETE CASCADE,
-    CONSTRAINT pk_estimate
+    CONSTRAINT pk_estimate_reporting_period
         PRIMARY KEY (reporting_period_id)
 );
 
 -- [richmosko]: a trigger to update the updated_at timestamp
-CREATE TRIGGER trg_update_pfinestimate_updated_at
-    BEFORE UPDATE ON pfin.estimate
+CREATE TRIGGER trg_update_pfinearning_updated_at
+    BEFORE UPDATE ON pfin.earning
     FOR EACH ROW
     EXECUTE FUNCTION pfin.fn_update_updated_at_column();
 
@@ -772,6 +780,6 @@ INSERT INTO pfin.schema_version (
 ) VALUES (
     '00',
     '04',
-    '0001',
+    '0002',
     'sql/schema/schema.sql'
 );
