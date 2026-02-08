@@ -386,16 +386,17 @@ CREATE INDEX idx_account_trans_date_account ON pfin.account_trans(trans_date DES
 
 -- Member Watchlists
 CREATE TABLE pfin.watchlist (
+    id SERIAL PRIMARY KEY,
     member_id INTEGER NOT NULL,
     asset_id INTEGER NOT NULL,
-    CONSTRAINT fk_member_watchlist_member_id
+    CONSTRAINT fk_watchlist_member_id
         FOREIGN KEY (member_id)
         REFERENCES pfin.member(id) ON DELETE CASCADE,
-    CONSTRAINT fk_member_watchlist_asset_id
+    CONSTRAINT fk_watchlist_asset_id
         FOREIGN KEY (asset_id)
         REFERENCES pfin.asset(id) ON DELETE RESTRICT,
-    CONSTRAINT pk_member_watchlist
-        PRIMARY KEY (member_id, asset_id)
+    CONSTRAINT uq_watchlist_memberasset
+        UNIQUE (member_id, asset_id)
 );
 
 
@@ -780,6 +781,6 @@ INSERT INTO pfin.schema_version (
 ) VALUES (
     '00',
     '04',
-    '0002',
+    '0003',
     'sql/schema/schema.sql'
 );
