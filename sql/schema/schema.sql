@@ -500,14 +500,8 @@ CREATE TABLE pfin.eod_price (
     id SERIAL PRIMARY KEY,
     asset_id INTEGER NOT NULL,
     end_date DATE NOT NULL,
-    open NUMERIC (14, 2),
-    high NUMERIC (14, 2),
-    low NUMERIC (14, 2),
-    close NUMERIC (14, 2),
+    price NUMERIC (14, 2),
     volume BIGINT,
-    change NUMERIC (14, 2),
-    change_percent NUMERIC (14, 5),
-    vwap NUMERIC (14, 4),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_eod_price_asset_id
         FOREIGN KEY (asset_id)
@@ -781,6 +775,6 @@ INSERT INTO pfin.schema_version (
 ) VALUES (
     '00',
     '04',
-    '0003',
+    '0004',
     'sql/schema/schema.sql'
 );
