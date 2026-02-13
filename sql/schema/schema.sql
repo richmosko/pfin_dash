@@ -8,37 +8,44 @@
 --
 --   Schema namespace to reference pfin_dash project
 -- ============================
-CREATE SCHEMA pfin;
+CREATE SCHEMA IF NOT EXISTS pfin;
 
 
 -- =========================
 -- USERS AND ACCESS SECURITY
 --   SUPABASE AUTH HYBRID APPROACH
 --   * Supabase auth.users handles: authentication, password reset, social logins
---   * member table handles: business logic, app-specific data
+--   * user_profile table handles: personalization, app-specific data
 --   * Automatic sync via triggers
--- 
 -- =========================
 
--- List of Members (Users), linked to Supabase auth
-CREATE TABLE pfin.member (
-    id SERIAL PRIMARY KEY,
-    supabase_user_id UUID UNIQUE NOT NULL,
-    email VARCHAR (128) UNIQUE NOT NULL,
-    -- Supabase auth.users handles all authentication
-    token_version INTEGER NOT NULL DEFAULT 0,
-    last_token_refresh TIMESTAMPTZ,
+-- Profiles users, linked to Supabase auth.users
+CREATE TABLE pfin.user_profile (
+    users_id UUID UNIQUE NOT NULL,
+    user_name VARCHAR (64) UNIQUE NOT NULL, -- frontend display name
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_login TIMESTAMPTZ,
-    CONSTRAINT fk_member_supabase_user_id
-        FOREIGN KEY (supabase_user_id)
-        REFERENCES auth.users(id) ON DELETE CASCADE
+    CONSTRAINT fk_user_profile_users_id
+        FOREIGN KEY (users_id)
+        REFERENCES auth.users(id) ON DELETE CASCADE,
+    CONSTRAINT pk_users_id
+        PRIMARY KEY (users_id)
 );
-COMMENT ON TABLE pfin.member IS 'List of User/Members';
+ALTER TABLE pfin.user_profile ENABLE ROW LEVEL SECURITY;
 
-CREATE INDEX idx_member_email ON pfin.member(email);
-CREATE INDEX idx_member_supabase_user_id ON pfin.member(supabase_user_id);
+CREATE POLICY "Authenticated users can view their own user_profile"
+ON pfin.user_profile
+FOR SELECT
+TO authenticated
+USING (auth.uid() = users_id);
+
+CREATE POLICY "Authenticated users can edit their own user_profile"
+ON pfin.user_profile
+FOR UPDATE
+TO authenticated
+USING (auth.uid() = users_id);
+
+COMMENT ON TABLE pfin.user_profile IS 'List of User/Members with personalizations';
 
 -- Function to allow trigger updates of 'updated_at' columns
 CREATE OR REPLACE FUNCTION pfin.fn_update_updated_at_column()
@@ -51,17 +58,17 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER; -- Add SECURITY DEFINER
 
 -- Add a trigger to update updated_at timestamp
-CREATE TRIGGER trg_update_pfinmember_updated_at
-    BEFORE UPDATE ON pfin.member
+CREATE TRIGGER trg_update_pfinuprofile_updated_at
+    BEFORE UPDATE ON pfin.user_profile
     FOR EACH ROW
     EXECUTE FUNCTION pfin.fn_update_updated_at_column();
 
--- Auto-create member record when user signs up via Supabase
+-- Auto-create user_profile record when user signs up via Supabase
 CREATE OR REPLACE FUNCTION pfin.fn_handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
     SET search_path TO auth, pfin, pg_catalog;
-    INSERT INTO pfin.member (supabase_user_id, email)
+    INSERT INTO pfin.user_profile (users_id, user_name)
     VALUES (NEW.id, NEW.email);
     RETURN NEW;
 END;
@@ -71,25 +78,6 @@ CREATE TRIGGER trg_on_pfinauth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW
     EXECUTE FUNCTION pfin.fn_handle_new_user();
-
--- Sync email changes from Supabase auth to member table
-CREATE OR REPLACE FUNCTION pfin.fn_sync_user_email()
-RETURNS TRIGGER AS $$
-BEGIN
-    SET search_path TO auth, pfin, pg_catalog;
-    UPDATE pfin.member 
-    SET email = NEW.email,
-        updated_at = public.NOW()
-    WHERE supabase_user_id = NEW.id;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER; -- Add SECURITY DEFINER
-
-CREATE TRIGGER trg_on_pfinauth_user_email_updated
-    AFTER UPDATE OF email ON auth.users
-    FOR EACH ROW
-    WHEN (OLD.email IS DISTINCT FROM NEW.email)
-    EXECUTE FUNCTION pfin.fn_sync_user_email();
 
 
 -- ==================================================
@@ -254,12 +242,12 @@ CREATE TABLE pfin.account (
     account_type_id INTEGER NOT NULL,
     acct_name VARCHAR (128) NOT NULL, -- Account Name (per-creator unique)
     acct_number VARCHAR (128),
-    created_by INTEGER NOT NULL,
+    created_by UUID NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT fk_account_created_by
+    CONSTRAINT fk_account_users_id
         FOREIGN KEY (created_by)
-        REFERENCES pfin.member(id) ON DELETE CASCADE,
+        REFERENCES auth.users(id) ON DELETE CASCADE,
     CONSTRAINT fk_account_account_type_id
         FOREIGN KEY (account_type_id)
         REFERENCES pfin.account_type(id) ON DELETE RESTRICT,
@@ -279,10 +267,10 @@ CREATE INDEX idx_account_created_by ON pfin.account(created_by);
 -- Accounts Access: Who can access what
 CREATE TABLE pfin.account_access (
     account_id INTEGER NOT NULL,
-    member_id INTEGER NOT NULL,
+    users_id UUID NOT NULL,
     access_level VARCHAR (20) NOT NULL,
     nickname VARCHAR (128) NOT NULL,
-    granted_by INTEGER,
+    granted_by UUID,
     granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     notes TEXT,
     CONSTRAINT ck_access_level
@@ -290,27 +278,27 @@ CREATE TABLE pfin.account_access (
     CONSTRAINT fk_account_access_account_id
         FOREIGN KEY (account_id)
         REFERENCES pfin.account(id) ON DELETE CASCADE,
-    CONSTRAINT fk_account_access_member_id
-        FOREIGN KEY (member_id)
-        REFERENCES pfin.member(id) ON DELETE CASCADE,
+    CONSTRAINT fk_account_access_users_id
+        FOREIGN KEY (users_id)
+        REFERENCES auth.users(id) ON DELETE CASCADE,
     CONSTRAINT fk_account_access_granted_by
         FOREIGN KEY (granted_by)
-        REFERENCES pfin.member(id) ON DELETE SET NULL,
+        REFERENCES auth.users(id) ON DELETE SET NULL,
     CONSTRAINT pk_account_access
-        PRIMARY KEY (account_id, member_id),
-    CONSTRAINT uq_account_access_membernickname
-        UNIQUE (member_id, nickname)
+        PRIMARY KEY (account_id, users_id),
+    CONSTRAINT uq_account_access_usernickname
+        UNIQUE (users_id, nickname)
 );
-COMMENT ON TABLE pfin.account_access IS 'Defines what members can access which account';
+COMMENT ON TABLE pfin.account_access IS 'Defines which users can access which account';
 
-CREATE INDEX idx_account_access_member_id ON pfin.account_access(member_id);
+CREATE INDEX idx_account_access_users_id ON pfin.account_access(users_id);
 
--- Trigger to automatically grant member access when account is created
+-- Trigger to automatically grant creator access when account is created
 CREATE OR REPLACE FUNCTION pfin.fn_grant_creator_access()
 RETURNS TRIGGER AS $$
 BEGIN
     SET search_path TO pfin, pg_catalog;
-    INSERT INTO pfin.account_access (account_id, member_id, access_level, granted_by, nickname)
+    INSERT INTO pfin.account_access (account_id, users_id, access_level, granted_by, nickname)
     VALUES (NEW.id, NEW.created_by, 'owner', NEW.created_by, NEW.acct_name);
     RETURN NEW;
 END;
@@ -387,16 +375,16 @@ CREATE INDEX idx_account_trans_date_account ON pfin.account_trans(trans_date DES
 -- Member Watchlists
 CREATE TABLE pfin.watchlist (
     id SERIAL PRIMARY KEY,
-    member_id INTEGER NOT NULL,
+    users_id UUID NOT NULL,
     asset_id INTEGER NOT NULL,
-    CONSTRAINT fk_watchlist_member_id
-        FOREIGN KEY (member_id)
-        REFERENCES pfin.member(id) ON DELETE CASCADE,
+    CONSTRAINT fk_watchlist_users_id
+        FOREIGN KEY (users_id)
+        REFERENCES auth.users(id) ON DELETE CASCADE,
     CONSTRAINT fk_watchlist_asset_id
         FOREIGN KEY (asset_id)
         REFERENCES pfin.asset(id) ON DELETE RESTRICT,
-    CONSTRAINT uq_watchlist_memberasset
-        UNIQUE (member_id, asset_id)
+    CONSTRAINT uq_watchlist_userasset
+        UNIQUE (users_id, asset_id)
 );
 
 
@@ -419,22 +407,22 @@ COMMENT ON TABLE pfin.cpi IS 'BLS Consumer Price Index';
 -- Historical Net Asset Value (NAV) tracking.
 CREATE TABLE pfin.nav (
     id SERIAL PRIMARY KEY,
-    member_id INTEGER NOT NULL,
+    users_id UUID NOT NULL,
     nav_date DATE NOT NULL,
     asset_cat_id INTEGER NOT NULL,
     nav_val NUMERIC (18, 2) NOT NULL,
     cpi_id INTEGER NOT NULL,
-    CONSTRAINT fk_nav_member_id
-        FOREIGN KEY (member_id)
-        REFERENCES pfin.member(id) ON DELETE CASCADE,
+    CONSTRAINT fk_nav_users_id
+        FOREIGN KEY (users_id)
+        REFERENCES auth.users(id) ON DELETE CASCADE,
     CONSTRAINT fk_nav_asset_cat_id
         FOREIGN KEY (asset_cat_id)
         REFERENCES pfin.asset_cat(id) ON DELETE RESTRICT,
     CONSTRAINT fk_nav_cpi_id
         FOREIGN KEY (cpi_id)
         REFERENCES pfin.cpi(id) ON DELETE CASCADE,
-    CONSTRAINT uq_nav_memberdate
-        UNIQUE (member_id, nav_date)
+    CONSTRAINT uq_nav_userdate
+        UNIQUE (users_id, nav_date)
 );
 
 
@@ -775,6 +763,6 @@ INSERT INTO pfin.schema_version (
 ) VALUES (
     '00',
     '04',
-    '0004',
+    '0005',
     'sql/schema/schema.sql'
 );
