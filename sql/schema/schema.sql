@@ -31,20 +31,6 @@ CREATE TABLE pfin.user_profile (
     CONSTRAINT pk_users_id
         PRIMARY KEY (users_id)
 );
-ALTER TABLE pfin.user_profile ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Authenticated users can view their own user_profile"
-ON pfin.user_profile
-FOR SELECT
-TO authenticated
-USING (auth.uid() = users_id);
-
-CREATE POLICY "Authenticated users can edit their own user_profile"
-ON pfin.user_profile
-FOR UPDATE
-TO authenticated
-USING (auth.uid() = users_id);
-
 COMMENT ON TABLE pfin.user_profile IS 'List of User/Members with personalizations';
 
 -- Function to allow trigger updates of 'updated_at' columns
@@ -79,12 +65,30 @@ CREATE TRIGGER trg_on_pfinauth_user_created
     FOR EACH ROW
     EXECUTE FUNCTION pfin.fn_handle_new_user();
 
+ALTER TABLE pfin.user_profile ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated users can view their own user_profile"
+ON pfin.user_profile
+FOR SELECT
+TO authenticated
+USING (auth.uid() = users_id);
+
+CREATE POLICY "Authenticated users can edit their own user_profile"
+ON pfin.user_profile
+FOR UPDATE
+TO authenticated
+USING (auth.uid() = users_id)
+WITH CHECK (auth.uid() = users_id);
+
+REVOKE UPDATE ON pfin.user_profile FROM authenticated;
+GRANT UPDATE (user_name) ON pfin.user_profile TO authenticated;
+
 
 -- ==================================================
 -- DEFINED CATEGORIES / TYPES (INFREQUENTLY MODIFIED)
 -- ==================================================
 
 -- Account Types: Valid account types and associated tax and liability handling
+--                TODO: ROW LEVEL SECURITY HOOKS FOR USER CREATED ACCOUNT TYPES
 CREATE TABLE pfin.account_type (
     id SERIAL PRIMARY KEY,
     name VARCHAR (128) UNIQUE NOT NULL,
@@ -93,6 +97,12 @@ CREATE TABLE pfin.account_type (
     is_liability BOOLEAN NOT NULL,
     notes TEXT
 );
+ALTER TABLE pfin.account_type ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow select for all authenticated users"
+ON pfin.account_type
+AS permissive FOR SELECT
+TO authenticated
+USING (true);
 
 INSERT INTO pfin.account_type
     (name, is_taxable, is_tax_deferred, is_liability, notes)
@@ -113,6 +123,7 @@ VALUES
     ('VIRTUAL', FALSE, FALSE, FALSE, 'Aggregate of multiple accounts');
 
 -- Asset Categories: Valid assets to track. ie: cash, bonds, equity, alt, etc.
+-- TODO: ROW LEVEL SECURITY HOOKS FOR USER CREATED ASSET CATEGORIES
 -- and associated sub-categories
 CREATE TABLE pfin.asset_cat (
     id SERIAL PRIMARY KEY,
@@ -121,6 +132,13 @@ CREATE TABLE pfin.asset_cat (
     notes TEXT,
     CONSTRAINT uq_asset_cat UNIQUE (cat, sub_cat)
 );
+
+ALTER TABLE pfin.asset_cat ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow select for all authenticated users"
+ON pfin.asset_cat
+AS permissive FOR SELECT
+TO authenticated
+USING (true);
 
 INSERT INTO pfin.asset_cat
     (id, cat, sub_cat, notes)
@@ -164,6 +182,7 @@ VALUES
 
 -- Tax Categories: Ways that different income streams (or transactions in general)
 -- are treated.
+-- TODO: ROW LEVEL SECURITY HOOKS FOR USER CREATED TAX CATEGORIES
 CREATE TABLE pfin.tax_cat (
     id SERIAL PRIMARY KEY,
     name VARCHAR (16) NOT NULL,
@@ -174,6 +193,13 @@ CREATE TABLE pfin.tax_cat (
 );
 COMMENT ON TABLE pfin.tax_cat IS 'How the transaction should be treated for tax purposes.';
 
+ALTER TABLE pfin.tax_cat ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow select for all authenticated users"
+ON pfin.tax_cat
+AS permissive FOR SELECT
+TO authenticated
+USING (true);
+
 INSERT INTO pfin.tax_cat
     (id, name, tax_as_ordinary, tax_as_cap_gain, tax_as_sec_1246, notes)
 VALUES
@@ -183,6 +209,7 @@ VALUES
     (4, 'irs-6040', FALSE, FALSE, TRUE, 'IRS section 1256, tax at 60% long-term & 40% short-term rates');
 
 -- Transaction Categories: Valid transactions types
+-- TODO: ROW LEVEL SECURITY HOOKS FOR USER CREATED TRANSACTION CATEGORIES
 CREATE TABLE pfin.trans_cat (
     id SERIAL PRIMARY KEY,
     cat VARCHAR (128) NOT NULL,
@@ -194,6 +221,13 @@ CREATE TABLE pfin.trans_cat (
         REFERENCES pfin.tax_cat(id) ON DELETE RESTRICT,
     CONSTRAINT uq_trans_cat UNIQUE (cat, sub_cat)
 );
+
+ALTER TABLE pfin.trans_cat ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow select for all authenticated users"
+ON pfin.trans_cat
+AS permissive FOR SELECT
+TO authenticated
+USING (true);
 
 INSERT INTO pfin.trans_cat
     (cat, sub_cat, tax_cat_id, notes)
@@ -254,7 +288,9 @@ CREATE TABLE pfin.account (
     CONSTRAINT uq_account_namecreated
         UNIQUE (acct_name, created_by)
 );
-COMMENT ON TABLE pfin.account IS 'List of Accounts and associated who is the owner';
+COMMENT ON TABLE pfin.account IS 'List of Accounts and associated owner';
+
+CREATE INDEX idx_account_created_by ON pfin.account(created_by);
 
 -- [richmosko]: a trigger to update the updated_at timestamp
 CREATE TRIGGER trg_update_pfinaccount_updated_at
@@ -262,69 +298,149 @@ CREATE TRIGGER trg_update_pfinaccount_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION pfin.fn_update_updated_at_column();
 
-CREATE INDEX idx_account_created_by ON pfin.account(created_by);
+ALTER TABLE pfin.account ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated users can view their own accounts"
+ON pfin.account
+FOR SELECT
+TO authenticated
+USING (auth.uid() = created_by);
+
+CREATE POLICY "Authenticated users can add their own accounts"
+ON pfin.account
+FOR INSERT
+TO authenticated
+WITH CHECK (auth.uid() = created_by);
+
+CREATE POLICY "Authenticated users can modify their own accounts"
+ON pfin.account
+FOR UPDATE
+TO authenticated
+USING (auth.uid() = created_by)
+WITH CHECK (auth.uid() = created_by);
+
+CREATE POLICY "Authenticated users can delete their own accounts"
+ON pfin.account
+FOR DELETE
+TO authenticated
+USING (auth.uid() = created_by);
 
 -- Accounts Access: Who can access what
-CREATE TABLE pfin.account_access (
-    account_id INTEGER NOT NULL,
+CREATE TABLE pfin.account_users (
     users_id UUID NOT NULL,
-    access_level VARCHAR (20) NOT NULL,
+    account_id INTEGER NOT NULL,
+    account_type_id INTEGER NOT NULL,
+    rd_access BOOLEAN NOT NULL,
+    wr_access BOOLEAN NOT NULL,
     nickname VARCHAR (128) NOT NULL,
     granted_by UUID,
     granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     notes TEXT,
-    CONSTRAINT ck_access_level
-        CHECK (access_level IN ('owner', 'editor', 'viewer')),
-    CONSTRAINT fk_account_access_account_id
-        FOREIGN KEY (account_id)
-        REFERENCES pfin.account(id) ON DELETE CASCADE,
-    CONSTRAINT fk_account_access_users_id
+    CONSTRAINT fk_users_id
         FOREIGN KEY (users_id)
         REFERENCES auth.users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_account_access_granted_by
+    CONSTRAINT fk_account_id
+        FOREIGN KEY (account_id)
+        REFERENCES pfin.account(id) ON DELETE CASCADE,
+    CONSTRAINT fk_account_type_id
+        FOREIGN KEY (account_type_id)
+        REFERENCES pfin.account_type(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_granted_by
         FOREIGN KEY (granted_by)
-        REFERENCES auth.users(id) ON DELETE SET NULL,
-    CONSTRAINT pk_account_access
-        PRIMARY KEY (account_id, users_id),
-    CONSTRAINT uq_account_access_usernickname
+        REFERENCES auth.users(id) ON DELETE CASCADE,
+    CONSTRAINT pk_account_users
+        PRIMARY KEY (users_id, account_id),
+    CONSTRAINT uq_users_nickname
         UNIQUE (users_id, nickname)
 );
-COMMENT ON TABLE pfin.account_access IS 'Defines which users can access which account';
+COMMENT ON TABLE pfin.account_users IS 'Defines which users can access which account';
 
-CREATE INDEX idx_account_access_users_id ON pfin.account_access(users_id);
+CREATE INDEX idx_account_users_users_id ON pfin.account_users(users_id);
+CREATE INDEX idx_account_users_account_id ON pfin.account_users(account_id);
 
 -- Trigger to automatically grant creator access when account is created
+-- [richmosko]: nickname column defaults to account.acct_name
 CREATE OR REPLACE FUNCTION pfin.fn_grant_creator_access()
 RETURNS TRIGGER AS $$
 BEGIN
     SET search_path TO pfin, pg_catalog;
-    INSERT INTO pfin.account_access (account_id, users_id, access_level, granted_by, nickname)
-    VALUES (NEW.id, NEW.created_by, 'owner', NEW.created_by, NEW.acct_name);
+    INSERT INTO pfin.account_users
+        (user_id, account_id, account_type_id,
+         rd_access, wr_access, nickname, granted_by,
+         notes)
+    VALUES
+        (NEW.created_by, NEW.id, NEW.account_type_id,
+         TRUE, TRUE, NEW.acct_name, NEW.created_by,
+         'Owner granted full R/W access');
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- [richmosko]: nickname column defaults to account.acct_name
 CREATE TRIGGER trg_pfinaccount_creator_access
 AFTER INSERT ON pfin.account
 FOR EACH ROW
 EXECUTE FUNCTION pfin.fn_grant_creator_access();
 
+ALTER TABLE pfin.account_users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated users can view their own and granted info"
+ON pfin.account_users
+FOR SELECT
+TO authenticated
+USING (auth.uid() = users_id OR auth.uid() = granted_by);
+
+CREATE POLICY "Authenticated users can update or revoke access"
+ON pfin.account_users
+FOR UPDATE
+TO authenticated
+USING (auth.uid() = granted_by)
+WITH CHECK (auth.uid() = granted_by);
+
 -- List of Assets
 --     [richmosko]: If "Equity" type, Company Information via the "stock-list" query
 CREATE TABLE pfin.asset (
     id SERIAL PRIMARY KEY,
-    symbol VARCHAR (16) UNIQUE NOT NULL,
+    symbol VARCHAR (16) NOT NULL,
     asset_cat_id INTEGER NOT NULL,
     has_financials BOOLEAN NOT NULL DEFAULT FALSE, -- SEC Financial Statements
     has_chart BOOLEAN NOT NULL DEFAULT FALSE,
     description TEXT,
     exp_date DATE, -- [richmosko]: If NULL, then no expiration date
+    created_by UUID DEFAULT auth.uid(),
     CONSTRAINT fk_asset_asset_cat_id
         FOREIGN KEY (asset_cat_id)
-        REFERENCES pfin.asset_cat(id) ON DELETE RESTRICT
+        REFERENCES pfin.asset_cat(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_account_users_id
+        FOREIGN KEY (created_by)
+        REFERENCES auth.users(id) ON DELETE CASCADE,
+    -- [richmosko]: NULL created_by treated as generated by service_role
+    CONSTRAINT uq_symbol_created_by
+        UNIQUE NULLS NOT DISTINCT (symbol, created_by)
 );
 COMMENT ON TABLE pfin.asset IS 'Assets can be stocks, bonds, or whatever is defined in asset_cat';
+
+CREATE INDEX idx_asset_cat_id ON pfin.asset(asset_cat_id);
+CREATE INDEX idx_asset_created_by ON pfin.asset(created_by);
+
+ALTER TABLE pfin.asset ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated users can view global or own added assets"
+ON pfin.asset
+FOR SELECT
+USING (created_by = auth.uid() OR created_by = NULL);
+
+CREATE POLICY insert_own_asset
+ON pfin.asset
+FOR INSERT
+WITH CHECK (created_by = auth.uid());
+
+CREATE POLICY update_own_asset
+ON pfin.asset
+FOR UPDATE
+USING (created_by = auth.uid())
+WITH CHECK (created_by = auth.uid());
+
+CREATE POLICY delete_own_asset
+ON pfin.asset
+FOR DELETE
+USING (created_by = auth.uid());
 
 INSERT INTO pfin.asset
     (symbol, asset_cat_id, has_financials, has_chart, description)
@@ -332,8 +448,6 @@ VALUES
     ('CASH', 1, FALSE, FALSE, 'Cash or cash-like holdings'),
     ('Money Market', 2, FALSE, FALSE, 'Brokerage Money Market funds'),
     ('VOO', 20, FALSE, TRUE, 'Vanguard S&P500 Index ETF');
-
-CREATE INDEX idx_asset_cat_id ON pfin.asset(asset_cat_id);
 
 -- Account Transactions
 --     [richmosko]: Reconciled holdings live here as well. they will show up as 'reconcile' trans_cat_id
@@ -371,6 +485,18 @@ CREATE INDEX idx_account_trans_date ON pfin.account_trans(trans_date);
 CREATE INDEX idx_account_trans_import_hash ON pfin.account_trans(import_hash);
 CREATE INDEX idx_account_trans_account_date ON pfin.account_trans(account_id, trans_date DESC);
 CREATE INDEX idx_account_trans_date_account ON pfin.account_trans(trans_date DESC, account_id);
+
+--ALTER TABLE pfin.account_trans ENABLE ROW LEVEL SECURITY;
+--CREATE POLICY "Account SELECT access based on rd_access flag per user"
+--ON pfin.account_trans
+--FOR SELECT
+--TO authenticated
+--USING (
+--    id IN (
+--    SELECT account_id
+--    FROM pfin.account_users
+--    WHERE auth.uid() = users_id AND rd_access)
+--);
 
 -- Member Watchlists
 CREATE TABLE pfin.watchlist (
@@ -498,14 +624,14 @@ CREATE TABLE pfin.eod_price (
         UNIQUE (asset_id, end_date)
 );
 
-CREATE INDEX idx_eod_price_asset_date ON pfin.eod_price(asset_id, end_date DESC);
-CREATE INDEX idx_eod_price_date ON pfin.eod_price(end_date DESC);
-
 -- [richmosko]: a trigger to update the updated_at timestamp
 CREATE TRIGGER trg_update_pfineodprice_updated_at
     BEFORE UPDATE ON pfin.eod_price
     FOR EACH ROW
     EXECUTE FUNCTION pfin.fn_update_updated_at_column();
+
+CREATE INDEX idx_eod_price_asset_date ON pfin.eod_price(asset_id, end_date DESC);
+CREATE INDEX idx_eod_price_date ON pfin.eod_price(end_date DESC);
 
 -- Company Reporting Periods
 --     [richmosko]: Intermediate table to sync earnings, cash flows, and balance sheets
