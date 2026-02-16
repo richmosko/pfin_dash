@@ -37,11 +37,11 @@ COMMENT ON TABLE pfin.user_profile IS 'List of User/Members with personalization
 CREATE OR REPLACE FUNCTION pfin.fn_update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
-    SET search_path TO pfin, pg_catalog;
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER; -- Add SECURITY DEFINER
+$$ LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = '';
 
 -- Add a trigger to update updated_at timestamp
 CREATE TRIGGER trg_update_pfinuprofile_updated_at
@@ -53,12 +53,12 @@ CREATE TRIGGER trg_update_pfinuprofile_updated_at
 CREATE OR REPLACE FUNCTION pfin.fn_handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-    SET search_path TO auth, pfin, pg_catalog;
     INSERT INTO pfin.user_profile (users_id, user_name)
     VALUES (NEW.id, NEW.email);
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER; -- Add SECURITY DEFINER
+$$ LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = '';
 
 CREATE TRIGGER trg_on_pfinauth_user_created
     AFTER INSERT ON auth.users
@@ -70,14 +70,14 @@ CREATE POLICY "Authenticated users can view their own user_profile"
 ON pfin.user_profile
 FOR SELECT
 TO authenticated
-USING (auth.uid() = users_id);
+USING (users_id = (SELECT auth.uid()));
 
 CREATE POLICY "Authenticated users can edit their own user_profile"
 ON pfin.user_profile
 FOR UPDATE
 TO authenticated
-USING (auth.uid() = users_id)
-WITH CHECK (auth.uid() = users_id);
+USING (users_id = (SELECT auth.uid()))
+WITH CHECK (users_id = (SELECT auth.uid()));
 
 REVOKE UPDATE ON pfin.user_profile FROM authenticated;
 GRANT UPDATE (user_name) ON pfin.user_profile TO authenticated;
@@ -303,26 +303,26 @@ CREATE POLICY "Authenticated users can view their own accounts"
 ON pfin.account
 FOR SELECT
 TO authenticated
-USING (auth.uid() = created_by);
+USING (created_by = (SELECT auth.uid()));
 
 CREATE POLICY "Authenticated users can add their own accounts"
 ON pfin.account
 FOR INSERT
 TO authenticated
-WITH CHECK (auth.uid() = created_by);
+WITH CHECK (created_by = (SELECT auth.uid()));
 
 CREATE POLICY "Authenticated users can modify their own accounts"
 ON pfin.account
 FOR UPDATE
 TO authenticated
-USING (auth.uid() = created_by)
-WITH CHECK (auth.uid() = created_by);
+USING (created_by = (SELECT auth.uid()))
+WITH CHECK (created_by = (SELECT auth.uid()));
 
 CREATE POLICY "Authenticated users can delete their own accounts"
 ON pfin.account
 FOR DELETE
 TO authenticated
-USING (auth.uid() = created_by);
+USING (created_by = (SELECT auth.uid()));
 
 -- Accounts Access: Who can access what
 CREATE TABLE pfin.account_users (
@@ -362,9 +362,8 @@ CREATE INDEX idx_account_users_account_id ON pfin.account_users(account_id);
 CREATE OR REPLACE FUNCTION pfin.fn_grant_creator_access()
 RETURNS TRIGGER AS $$
 BEGIN
-    SET search_path TO pfin, pg_catalog;
     INSERT INTO pfin.account_users
-        (user_id, account_id, account_type_id,
+        (users_id, account_id, account_type_id,
          rd_access, wr_access, nickname, granted_by,
          notes)
     VALUES
@@ -373,7 +372,8 @@ BEGIN
          'Owner granted full R/W access');
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = '';
 
 CREATE TRIGGER trg_pfinaccount_creator_access
 AFTER INSERT ON pfin.account
@@ -385,14 +385,14 @@ CREATE POLICY "Authenticated users can view their own and granted info"
 ON pfin.account_users
 FOR SELECT
 TO authenticated
-USING (auth.uid() = users_id OR auth.uid() = granted_by);
+USING (users_id = (SELECT auth.uid()) OR granted_by = (SELECT auth.uid()));
 
 CREATE POLICY "Authenticated users can update or revoke access"
 ON pfin.account_users
 FOR UPDATE
 TO authenticated
-USING (auth.uid() = granted_by)
-WITH CHECK (auth.uid() = granted_by);
+USING (granted_by = (SELECT auth.uid()))
+WITH CHECK (granted_by = (SELECT auth.uid()));
 
 -- List of Assets
 --     [richmosko]: If "Equity" type, Company Information via the "stock-list" query
@@ -424,23 +424,23 @@ ALTER TABLE pfin.asset ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Authenticated users can view global or own added assets"
 ON pfin.asset
 FOR SELECT
-USING (created_by = auth.uid() OR created_by = NULL);
+USING (created_by = (SELECT auth.uid()) OR created_by = NULL);
 
 CREATE POLICY insert_own_asset
 ON pfin.asset
 FOR INSERT
-WITH CHECK (created_by = auth.uid());
+WITH CHECK (created_by = (SELECT auth.uid()));
 
 CREATE POLICY update_own_asset
 ON pfin.asset
 FOR UPDATE
-USING (created_by = auth.uid())
-WITH CHECK (created_by = auth.uid());
+USING (created_by = (SELECT auth.uid()))
+WITH CHECK (created_by = (SELECT auth.uid()));
 
 CREATE POLICY delete_own_asset
 ON pfin.asset
 FOR DELETE
-USING (created_by = auth.uid());
+USING (created_by = (SELECT auth.uid()));
 
 INSERT INTO pfin.asset
     (symbol, asset_cat_id, has_financials, has_chart, description)
@@ -495,7 +495,7 @@ CREATE INDEX idx_account_trans_date_account ON pfin.account_trans(trans_date DES
 --    id IN (
 --    SELECT account_id
 --    FROM pfin.account_users
---    WHERE auth.uid() = users_id AND rd_access)
+--    WHERE users_id = (SELECT auth.uid()) AND rd_access)
 --);
 
 -- Member Watchlists
@@ -888,7 +888,7 @@ INSERT INTO pfin.schema_version (
     script_name
 ) VALUES (
     '00',
-    '04',
-    '0005',
+    '05',
+    '0001',
     'sql/schema/schema.sql'
 );
