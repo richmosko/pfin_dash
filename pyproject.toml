@@ -1,7 +1,0 @@
-[project]
-name = "pfin-dash"
-version = "0.2.0"
-description = "Personal Finance Dashboard"
-readme = "README.md"
-requires-python = ">=3.14"
-dependencies = []
