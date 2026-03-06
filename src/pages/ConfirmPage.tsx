@@ -1,10 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
+function getHashError(): string | null {
+  const hashParams = new URLSearchParams(
+    window.location.hash.substring(1)
+  )
+  return hashParams.get('error_description')
+}
+
 export default function ConfirmPage() {
   const navigate = useNavigate()
-  const [error, setError] = useState<string | null>(null)
+  const error = getHashError()
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -14,15 +21,6 @@ export default function ConfirmPage() {
         }
       }
     )
-
-    // Check for error in URL hash (Supabase puts errors there)
-    const hashParams = new URLSearchParams(
-      window.location.hash.substring(1)
-    )
-    const errorDescription = hashParams.get('error_description')
-    if (errorDescription) {
-      setError(errorDescription)
-    }
 
     return () => subscription.unsubscribe()
   }, [navigate])
