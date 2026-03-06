@@ -3,15 +3,18 @@ import { MemoryRouter } from 'react-router-dom'
 import ConfirmPage from '../ConfirmPage'
 
 // Mock the supabase client
-const mockUnsubscribe = vi.fn()
-const mockOnAuthStateChange = vi.fn(() => ({
-  data: { subscription: { unsubscribe: mockUnsubscribe } },
-}))
+const { mockUnsubscribe, mockOnAuthStateChange } = vi.hoisted(() => {
+  const mockUnsubscribe = vi.fn()
+  const mockOnAuthStateChange = vi.fn(() => ({
+    data: { subscription: { unsubscribe: mockUnsubscribe } },
+  }))
+  return { mockUnsubscribe, mockOnAuthStateChange }
+})
 
 vi.mock('../../lib/supabase', () => ({
   supabase: {
     auth: {
-      onAuthStateChange: (...args: unknown[]) => mockOnAuthStateChange(...args),
+      onAuthStateChange: mockOnAuthStateChange,
     },
   },
 }))

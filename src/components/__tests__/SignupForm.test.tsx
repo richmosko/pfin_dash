@@ -3,12 +3,14 @@ import userEvent from '@testing-library/user-event'
 import SignupForm from '../SignupForm'
 
 // Mock the supabase client
-const mockSignUp = vi.fn()
+const { mockSignUp } = vi.hoisted(() => ({
+  mockSignUp: vi.fn(),
+}))
 
 vi.mock('../../lib/supabase', () => ({
   supabase: {
     auth: {
-      signUp: (...args: unknown[]) => mockSignUp(...args),
+      signUp: mockSignUp,
     },
   },
 }))
